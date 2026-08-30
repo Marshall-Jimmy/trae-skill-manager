@@ -1,0 +1,11 @@
+pub mod browse;
+pub mod export;
+pub mod fetch;
+pub mod history;
+pub mod install;
+pub mod remove;
+pub mod scan;
+pub mod search_github;
+pub mod toggle;
+pub mod translate;
+pub mod update;

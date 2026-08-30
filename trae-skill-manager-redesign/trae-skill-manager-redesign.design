@@ -1,0 +1,90 @@
+{
+  "name": "TRAE Skill Manager 重新设计",
+  "version": "1.0.0",
+  "description": "TRAE Skill Manager 桌面应用 UI 重新设计 — 基于 TRAE 设计系统",
+  "config": {
+    "deviceType": "desktop",
+    "designLibrary": {
+      "name": "TRAE",
+      "id": "dl_builtin_trae",
+      "version": null,
+      "versionSource": null,
+      "scope": "built-in-global",
+      "path": "c:\\Users\\cronu\\.trae-cn\\design_libraries\\dl_builtin_trae"
+    }
+  },
+  "data": [
+    {
+      "id": "page-discover",
+      "type": "page",
+      "title": "发现 Skill",
+      "group": "main",
+      "version": 1,
+      "createdAt": 1782294991000,
+      "canvasData": {
+        "width": 1440,
+        "height": 900,
+        "x": 0,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/discover.html"
+      }
+    },
+    {
+      "id": "page-installed",
+      "type": "page",
+      "title": "已安装 Skill",
+      "group": "main",
+      "version": 1,
+      "createdAt": 1782294991000,
+      "canvasData": {
+        "width": 1440,
+        "height": 900,
+        "x": 0,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/installed.html"
+      }
+    },
+    {
+      "id": "page-mcp",
+      "type": "page",
+      "title": "MCP 市场",
+      "group": "main",
+      "version": 1,
+      "createdAt": 1782294991000,
+      "canvasData": {
+        "width": 1440,
+        "height": 900,
+        "x": 0,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/mcp.html"
+      }
+    },
+    {
+      "id": "page-settings",
+      "type": "page",
+      "title": "设置",
+      "group": "main",
+      "version": 1,
+      "createdAt": 1782294991000,
+      "canvasData": {
+        "width": 1440,
+        "height": 900,
+        "x": 0,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/settings.html"
+      }
+    }
+  ]
+}

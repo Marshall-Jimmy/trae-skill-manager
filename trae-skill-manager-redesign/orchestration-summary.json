@@ -1,0 +1,162 @@
+{
+  "project": {
+    "name": "TRAE Skill Manager 重新设计",
+    "path": "d:\\WorkingSpace\\trae-skill-manager\\trae-skill-manager-redesign",
+    "operation": "create",
+    "deviceType": "desktop",
+    "language": "zh-CN",
+    "dashboardMode": false,
+    "replicationMode": null,
+    "sourceUrl": null,
+    "visualSpecExcerpt": null,
+    "styleDefinitionBrief": null,
+    "designRead": "TRAE Skill Manager 是一个 Tauri v2 桌面应用，用于搜索、浏览和安装 Agent Skill。重新设计为更现代、更专业的 IDE 风格界面，使用 TRAE 设计系统的深色主题。",
+    "designDials": {
+      "layoutVariance": 2,
+      "motionIntensity": 1,
+      "visualDensity": 3
+    },
+    "styleContinuityAnchors": null,
+    "specsConstraints": null,
+    "sharedProjectShellContract": {
+      "navigationShell": "左侧 48px 活动栏 (activity-rail) + 220px 侧边栏导航 (nav-list)，深色背景，品牌绿色活跃状态指示器",
+      "primaryColorSystem": "品牌绿 #32f08c 作为主强调色，用于活跃状态、CTA 按钮和选中状态",
+      "typographySystem": "SF Pro Text / system-ui 正文，JetBrains Mono 代码字体。标题 600 weight，正文 400 weight",
+      "radiusScale": "2/4/6/8/10/full — 卡片 8px，按钮 6px，输入框 4px，标签 full",
+      "surfaceDepthModel": "三层表面系统：bg-base-default (#1a1b1d) → bg-base-secondary (#222427) → bg-base-tertiary (#2a2d31)，边框 border-neutral-l1 (10% opacity)",
+      "ctaStyle": "品牌绿色填充按钮 (bg-brand)，hover 使用 bg-brand-hover，ghost 按钮使用 bg-overlay-l1 背景",
+      "alignmentRules": "左侧导航固定宽度，内容区域自适应，卡片网格使用 gap-3，内边距 16px/24px"
+    },
+    "generationTree": {
+      "root": {
+        "nodeId": "gen-project-shell",
+        "kind": "project-shell",
+        "pageIds": ["page-discover", "page-installed", "page-mcp", "page-settings"],
+        "output": null,
+        "sharedRegions": ["sidebar", "topbar"],
+        "privateRegions": [],
+        "mutableSlots": ["activeNavItem", "pageTitle"],
+        "status": "planned",
+        "children": [
+          {
+            "nodeId": "gen-page-discover",
+            "kind": "page-leaf",
+            "pageIds": ["page-discover"],
+            "output": "pages/discover.html",
+            "status": "planned",
+            "children": []
+          },
+          {
+            "nodeId": "gen-page-installed",
+            "kind": "page-leaf",
+            "pageIds": ["page-installed"],
+            "output": "pages/installed.html",
+            "status": "planned",
+            "children": []
+          },
+          {
+            "nodeId": "gen-page-mcp",
+            "kind": "page-leaf",
+            "pageIds": ["page-mcp"],
+            "output": "pages/mcp.html",
+            "status": "planned",
+            "children": []
+          },
+          {
+            "nodeId": "gen-page-settings",
+            "kind": "page-leaf",
+            "pageIds": ["page-settings"],
+            "output": "pages/settings.html",
+            "status": "planned",
+            "children": []
+          }
+        ]
+      }
+    }
+  },
+  "designSource": {
+    "libraryIdentity": {
+      "name": "TRAE",
+      "id": "dl_builtin_trae",
+      "version": null,
+      "scope": "built-in-global",
+      "path": "c:\\Users\\cronu\\.trae-cn\\design_libraries\\dl_builtin_trae",
+      "versionSource": null
+    },
+    "iconAssets": {
+      "source": "assets/icons",
+      "projectIconDir": "assets/icons/dl_builtin_trae",
+      "libraryKey": "dl_builtin_trae",
+      "renderMethod": "css-mask",
+      "pathTemplate": "../assets/icons/dl_builtin_trae/{name}.svg",
+      "availableNames": ["alert-circle","alert-triangle","alert","apple","arrow-down","arrow-expand","arrow-left","arrow-minimize","arrow-right-to-line","arrow-right","arrow-up-right","arrow-up","at","atom","bar","bell","box","bug","calendar","check-circle","check","chevron-down","chevron-right","chevron-up","circle","clock","cmd","code","columns","copy","cpu","dashboard","dollar","download","edit","extensions","external","eye","file-text","file","files","filter","folder","gear","git","github","globe","grid-2x2","hash","heart","help","home","image","info-circle","info-square","info","key","layers","layout","link","list","lock","log-out","logo","mail","menu","message-circle","message-plus","message-square","mic","minus","moon","more-h","mouse","palette","panel-bottom","pause","play","plug","plus","refresh","ruler","scroll-text","search-menu","search","send","settings","shield","sidebar-left","sidebar-right","sliders","sparkles","square","star","sun","terminal","trash","trending-down","trending-up","type","upload","user-circle","user","users","wrench","x-circle","x","zap"],
+      "totalCount": 115,
+      "coloringRule": "currentColor by default; override with Library token when needed"
+    }
+  },
+  "pages": [
+    {
+      "nodeId": "page-discover",
+      "pageIndex": 1,
+      "title": "发现 Skill",
+      "businessScenario": "Skill 发现与搜索市场页 — 搜索、浏览、筛选和安装 Agent Skill",
+      "pageRequirements": "包含搜索栏、分类侧栏、筛选标签（全部/趋势/热门/收藏）、排序、网格/列表视图切换、Skill 卡片列表（显示名称、描述、来源、安装量、标签、安装/收藏按钮）、批量安装浮动栏",
+      "componentPlan": [
+        {"slug": "nav-list", "why": "左侧导航栏"},
+        {"slug": "buttons", "why": "安装/筛选/排序按钮"},
+        {"slug": "cards", "why": "Skill 卡片"},
+        {"slug": "tag", "why": "分类标签和 Skill 标签"},
+        {"slug": "forms", "why": "搜索输入框"},
+        {"slug": "tabs", "why": "筛选标签切换"}
+      ],
+      "densityType": "information-dense"
+    },
+    {
+      "nodeId": "page-installed",
+      "pageIndex": 2,
+      "title": "已安装 Skill",
+      "businessScenario": "已安装 Skill 管理页 — 查看、启用/禁用、更新、卸载本地 Skill",
+      "pageRequirements": "包含统计概览（总数/已启用/可更新）、筛选标签（全部/已启用/已禁用/可更新）、Skill 列表（名称、类型标签、路径、启用开关、更新/打开文件夹/卸载操作）、批量操作浮动栏",
+      "componentPlan": [
+        {"slug": "nav-list", "why": "左侧导航栏"},
+        {"slug": "buttons", "why": "操作按钮"},
+        {"slug": "cards", "why": "Skill 行卡片"},
+        {"slug": "tag", "why": "状态标签"},
+        {"slug": "forms", "why": "开关控件"},
+        {"slug": "stat-card", "why": "统计概览"}
+      ],
+      "densityType": "information-dense"
+    },
+    {
+      "nodeId": "page-mcp",
+      "pageIndex": 3,
+      "title": "MCP 市场",
+      "businessScenario": "MCP 服务器浏览与配置页 — 发现、安装和管理 MCP 服务器",
+      "pageRequirements": "包含 MCP 服务器卡片列表（名称、描述、图标、安装/配置按钮）、搜索筛选、服务器详情面板",
+      "componentPlan": [
+        {"slug": "nav-list", "why": "左侧导航栏"},
+        {"slug": "buttons", "why": "安装/配置按钮"},
+        {"slug": "cards", "why": "MCP 服务器卡片"},
+        {"slug": "tag", "why": "分类标签"},
+        {"slug": "forms", "why": "搜索和配置表单"},
+        {"slug": "dialog", "why": "配置弹窗"}
+      ],
+      "densityType": "information-dense"
+    },
+    {
+      "nodeId": "page-settings",
+      "pageIndex": 4,
+      "title": "设置",
+      "businessScenario": "应用设置页 — 配置全局 Skill 目录、项目路径、主题切换等",
+      "pageRequirements": "包含设置分组面板（通用设置、路径配置、主题设置）、路径输入/浏览、主题切换（深色/浅色/跟随系统）、关于信息",
+      "componentPlan": [
+        {"slug": "nav-list", "why": "左侧导航栏"},
+        {"slug": "setting-row", "why": "设置行控件"},
+        {"slug": "forms", "why": "输入框和选择器"},
+        {"slug": "buttons", "why": "浏览路径按钮"},
+        {"slug": "tabs", "why": "设置分组标签"}
+      ],
+      "densityType": "task-driven"
+    }
+  ]
+}

@@ -1,0 +1,702 @@
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  X,
+  Plus,
+  Trash2,
+  Play,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  AlertCircle,
+  Server,
+  Globe,
+  Terminal,
+} from 'lucide-react';
+import { useMcpStore } from '../store/mcpStore';
+import type { McpServer, McpConfigType } from '../types';
+
+interface McpConfigDialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+interface EnvVar {
+  key: string;
+  value: string;
+}
+
+export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
+  const { editingServer, marketplaceTemplate, addServer, updateServer, addServerFromMarketplace, startServer } =
+    useMcpStore();
+
+  const isEditing = !!editingServer;
+  const isFromMarketplace = !!marketplaceTemplate && !editingServer;
+
+  // Form state
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [icon, setIcon] = useState('');
+  const [category, setCategory] = useState('dev-tools');
+  const [command, setCommand] = useState('npx');
+  const [argsText, setArgsText] = useState('');
+  const [configType, setConfigType] = useState<McpConfigType>('stdio');
+  const [url, setUrl] = useState('');
+  const [cwd, setCwd] = useState('');
+  const [envVars, setEnvVars] = useState<EnvVar[]>([]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [testMessage, setTestMessage] = useState('');
+
+  // Initialize form from editing server or marketplace template
+  useEffect(() => {
+    if (!open) return;
+
+    if (editingServer) {
+      setName(editingServer.name);
+      setDescription(editingServer.description);
+      setIcon(editingServer.icon || '');
+      setCategory(editingServer.category);
+      setCommand(editingServer.command);
+      setArgsText(editingServer.args.join(' '));
+      setConfigType(editingServer.configType);
+      setUrl(editingServer.url || '');
+      setCwd(editingServer.cwd || '');
+      setEnvVars(
+        Object.entries(editingServer.env).map(([key, value]) => ({ key, value })),
+      );
+    } else if (marketplaceTemplate) {
+      setName(marketplaceTemplate.name);
+      setDescription(marketplaceTemplate.description);
+      setIcon(marketplaceTemplate.icon);
+      setCategory(marketplaceTemplate.category);
+      setCommand(marketplaceTemplate.command);
+      setArgsText(marketplaceTemplate.args.join(' '));
+      setConfigType(marketplaceTemplate.configType);
+      setUrl(marketplaceTemplate.url || '');
+      setCwd('');
+      setEnvVars(
+        marketplaceTemplate.envVars.map((ev) => ({ key: ev.key, value: '' })),
+      );
+    } else {
+      // New blank server
+      setName('');
+      setDescription('');
+      setIcon('🔌');
+      setCategory('dev-tools');
+      setCommand('npx');
+      setArgsText('');
+      setConfigType('stdio');
+      setUrl('');
+      setCwd('');
+      setEnvVars([]);
+    }
+
+    setErrors({});
+    setTestResult(null);
+    setTestMessage('');
+  }, [open, editingServer?.id, marketplaceTemplate?.id]);
+
+  const validate = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!name.trim()) {
+      newErrors.name = '请输入名称';
+    }
+    if (!command.trim()) {
+      newErrors.command = '请输入启动命令';
+    }
+    if (configType === 'sse' && !url.trim()) {
+      newErrors.url = 'SSE 模式需要 URL';
+    }
+
+    // Validate env var keys
+    for (const ev of envVars) {
+      if (ev.key && !ev.key.match(/^[A-Z_][A-Z0-9_]*$/i)) {
+        newErrors.env = `环境变量名 "${ev.key}" 格式不正确`;
+        break;
+      }
+    }
+
+    // Check required env vars from marketplace template
+    if (marketplaceTemplate && !editingServer) {
+      for (const requiredEnv of marketplaceTemplate.envVars.filter((e) => e.required)) {
+        const found = envVars.find((ev) => ev.key === requiredEnv.key);
+        if (!found || !found.value.trim()) {
+          newErrors.env = `请填写必填环境变量: ${requiredEnv.key}`;
+          break;
+        }
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleAddEnvVar = () => {
+    setEnvVars([...envVars, { key: '', value: '' }]);
+  };
+
+  const handleRemoveEnvVar = (index: number) => {
+    setEnvVars(envVars.filter((_, i) => i !== index));
+  };
+
+  const handleEnvVarChange = (index: number, field: 'key' | 'value', value: string) => {
+    const next = [...envVars];
+    next[index] = { ...next[index], [field]: value };
+    setEnvVars(next);
+  };
+
+  const buildEnvObject = (): Record<string, string> => {
+    const env: Record<string, string> = {};
+    for (const ev of envVars) {
+      if (ev.key.trim()) {
+        env[ev.key.trim()] = ev.value;
+      }
+    }
+    return env;
+  };
+
+  const parseArgs = (): string[] => {
+    if (!argsText.trim()) return [];
+    // Simple split by spaces, respecting quoted strings
+    const result: string[] = [];
+    let current = '';
+    let inQuote = false;
+    let quoteChar = '';
+
+    for (let i = 0; i < argsText.length; i++) {
+      const char = argsText[i];
+      if ((char === '"' || char === "'") && !inQuote) {
+        inQuote = true;
+        quoteChar = char;
+      } else if (char === quoteChar && inQuote) {
+        inQuote = false;
+        quoteChar = '';
+      } else if (char === ' ' && !inQuote) {
+        if (current.trim()) {
+          result.push(current.trim());
+        }
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    if (current.trim()) {
+      result.push(current.trim());
+    }
+    return result;
+  };
+
+  const handleTestConnection = async () => {
+    if (!validate()) return;
+
+    setTesting(true);
+    setTestResult(null);
+    setTestMessage('');
+
+    // TODO: Actual connection test via Tauri/Rust backend
+    // For MVP, simulate a test
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Simulate: succeed if command looks valid, fail otherwise
+    const args = parseArgs();
+
+    if (command.trim() && args.length > 0) {
+      setTestResult('success');
+      setTestMessage('连接测试成功！MCP Server 响应正常。');
+    } else {
+      setTestResult('error');
+      setTestMessage('测试失败：请检查命令和参数配置。');
+    }
+
+    setTesting(false);
+  };
+
+  const handleSave = () => {
+    if (!validate()) return;
+
+    const env = buildEnvObject();
+    const args = parseArgs();
+
+    if (editingServer) {
+      updateServer(editingServer.id, {
+        name: name.trim(),
+        description: description.trim(),
+        icon: icon.trim() || undefined,
+        category,
+        command: command.trim(),
+        args,
+        env,
+        configType,
+        url: url.trim() || undefined,
+        cwd: cwd.trim() || undefined,
+      });
+    } else if (marketplaceTemplate) {
+      addServerFromMarketplace(marketplaceTemplate, env);
+    } else {
+      addServer({
+        name: name.trim(),
+        description: description.trim(),
+        icon: icon.trim() || undefined,
+        category,
+        command: command.trim(),
+        args,
+        env,
+        configType,
+        url: url.trim() || undefined,
+        cwd: cwd.trim() || undefined,
+        source: 'user',
+      });
+    }
+
+    onClose();
+  };
+
+  const handleSaveAndStart = async () => {
+    if (!validate()) return;
+
+    const env = buildEnvObject();
+    const args = parseArgs();
+
+    let server: McpServer;
+
+    if (editingServer) {
+      updateServer(editingServer.id, {
+        name: name.trim(),
+        description: description.trim(),
+        icon: icon.trim() || undefined,
+        category,
+        command: command.trim(),
+        args,
+        env,
+        configType,
+        url: url.trim() || undefined,
+        cwd: cwd.trim() || undefined,
+      });
+      server = editingServer;
+    } else if (marketplaceTemplate) {
+      server = addServerFromMarketplace(marketplaceTemplate, env);
+    } else {
+      server = addServer({
+        name: name.trim(),
+        description: description.trim(),
+        icon: icon.trim() || undefined,
+        category,
+        command: command.trim(),
+        args,
+        env,
+        configType,
+        url: url.trim() || undefined,
+        cwd: cwd.trim() || undefined,
+        source: 'user',
+      });
+    }
+
+    // Start the server after saving
+    setTimeout(() => {
+      startServer(server.id);
+    }, 200);
+
+    onClose();
+  };
+
+  const dialogTitle = isEditing
+    ? '编辑 MCP Server'
+    : isFromMarketplace
+    ? `添加 ${marketplaceTemplate?.name}`
+    : '添加 MCP Server';
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 bg-black/40"
+            onClick={onClose}
+          />
+
+          {/* Dialog */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 24 }}
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[560px] max-w-[90vw] max-h-[85vh] bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl overflow-hidden flex flex-col"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-trae-border shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-trae-accent/10 border border-trae-accent/20 flex items-center justify-center">
+                  <Server className="w-4 h-4 text-trae-accent" />
+                </div>
+                <h3 className="text-trae-text font-semibold text-base">{dialogTitle}</h3>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg text-trae-text-secondary hover:text-trae-text hover:bg-trae-card/60 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Basic info */}
+              <div>
+                <h4 className="text-sm font-medium text-trae-text mb-3 flex items-center gap-2">
+                  <span className="w-1 h-4 bg-trae-accent rounded-full" />
+                  基本信息
+                </h4>
+                <div className="space-y-3 pl-3">
+                  {/* Name + Icon */}
+                  <div className="flex gap-3">
+                    <div className="w-12 shrink-0">
+                      <label className="block text-xs text-trae-text-secondary mb-1">图标</label>
+                      <input
+                        type="text"
+                        value={icon}
+                        onChange={(e) => setIcon(e.target.value)}
+                        placeholder="🔌"
+                        className="w-full px-3 py-2 bg-trae-bg border border-trae-border rounded-lg text-sm text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:border-trae-accent/40 focus:ring-1 focus:ring-trae-accent/30 transition-colors text-center"
+                        maxLength={4}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-trae-text-secondary mb-1">
+                        名称 <span className="text-trae-danger">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="My MCP Server"
+                        className={`w-full px-3 py-2 bg-trae-bg border rounded-lg text-sm text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:ring-1 transition-colors ${
+                          errors.name
+                            ? 'border-trae-danger/50 focus:border-trae-danger focus:ring-trae-danger/30'
+                            : 'border-trae-border focus:border-trae-accent/40 focus:ring-trae-accent/30'
+                        }`}
+                      />
+                      {errors.name && (
+                        <p className="text-xs text-trae-danger mt-1 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          {errors.name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className="block text-xs text-trae-text-secondary mb-1">描述</label>
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="MCP Server 的功能描述..."
+                      rows={2}
+                      className="w-full px-3 py-2 bg-trae-bg border border-trae-border rounded-lg text-sm text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:border-trae-accent/40 focus:ring-1 focus:ring-trae-accent/30 transition-colors resize-none"
+                    />
+                  </div>
+
+                  {/* Category */}
+                  <div>
+                    <label className="block text-xs text-trae-text-secondary mb-1">分类</label>
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className="w-full px-3 py-2 bg-trae-bg border border-trae-border rounded-lg text-sm text-trae-text focus:outline-none focus:border-trae-accent/40 focus:ring-1 focus:ring-trae-accent/30 transition-colors cursor-pointer"
+                    >
+                      <option value="dev-tools">开发工具</option>
+                      <option value="database">数据库</option>
+                      <option value="browser">浏览器</option>
+                      <option value="search">搜索</option>
+                      <option value="productivity">办公协作</option>
+                      <option value="filesystem">文件系统</option>
+                      <option value="memory">记忆存储</option>
+                      <option value="design">设计</option>
+                      <option value="other">其他</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Connection config */}
+              <div>
+                <h4 className="text-sm font-medium text-trae-text mb-3 flex items-center gap-2">
+                  <span className="w-1 h-4 bg-trae-accent rounded-full" />
+                  连接配置
+                </h4>
+                <div className="space-y-3 pl-3">
+                  {/* Config type toggle */}
+                  <div className="flex items-center bg-trae-card/30 border border-trae-border rounded-md p-0.5 w-fit">
+                    <button
+                      onClick={() => setConfigType('stdio')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                        configType === 'stdio'
+                          ? 'bg-trae-accent/20 text-trae-accent'
+                          : 'text-trae-text-secondary hover:text-trae-text'
+                      }`}
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      Stdio
+                    </button>
+                    <button
+                      onClick={() => setConfigType('sse')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                        configType === 'sse'
+                          ? 'bg-trae-accent/20 text-trae-accent'
+                          : 'text-trae-text-secondary hover:text-trae-text'
+                      }`}
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      SSE
+                    </button>
+                  </div>
+
+                  {configType === 'stdio' && (
+                    <>
+                      {/* Command */}
+                      <div>
+                        <label className="block text-xs text-trae-text-secondary mb-1">
+                          启动命令 <span className="text-trae-danger">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={command}
+                          onChange={(e) => setCommand(e.target.value)}
+                          placeholder="npx / python / node..."
+                          className={`w-full px-3 py-2 bg-trae-bg border rounded-lg text-sm font-mono text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:ring-1 transition-colors ${
+                            errors.command
+                              ? 'border-trae-danger/50 focus:border-trae-danger focus:ring-trae-danger/30'
+                              : 'border-trae-border focus:border-trae-accent/40 focus:ring-trae-accent/30'
+                          }`}
+                        />
+                        {errors.command && (
+                          <p className="text-xs text-trae-danger mt-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            {errors.command}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Args */}
+                      <div>
+                        <label className="block text-xs text-trae-text-secondary mb-1">
+                          参数
+                        </label>
+                        <input
+                          type="text"
+                          value={argsText}
+                          onChange={(e) => setArgsText(e.target.value)}
+                          placeholder="-y @modelcontextprotocol/server-github"
+                          className="w-full px-3 py-2 bg-trae-bg border border-trae-border rounded-lg text-sm font-mono text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:border-trae-accent/40 focus:ring-1 focus:ring-trae-accent/30 transition-colors"
+                        />
+                        <p className="text-[11px] text-trae-text-secondary/70 mt-1">
+                          多个参数用空格分隔，带空格的值用引号包裹
+                        </p>
+                      </div>
+
+                      {/* Working directory */}
+                      <div>
+                        <label className="block text-xs text-trae-text-secondary mb-1">
+                          工作目录（可选）
+                        </label>
+                        <input
+                          type="text"
+                          value={cwd}
+                          onChange={(e) => setCwd(e.target.value)}
+                          placeholder="/path/to/working/dir"
+                          className="w-full px-3 py-2 bg-trae-bg border border-trae-border rounded-lg text-sm font-mono text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:border-trae-accent/40 focus:ring-1 focus:ring-trae-accent/30 transition-colors"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {configType === 'sse' && (
+                    <div>
+                      <label className="block text-xs text-trae-text-secondary mb-1">
+                        SSE URL <span className="text-trae-danger">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        placeholder="http://localhost:3000/mcp/sse"
+                        className={`w-full px-3 py-2 bg-trae-bg border rounded-lg text-sm font-mono text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:ring-1 transition-colors ${
+                          errors.url
+                            ? 'border-trae-danger/50 focus:border-trae-danger focus:ring-trae-danger/30'
+                            : 'border-trae-border focus:border-trae-accent/40 focus:ring-trae-accent/30'
+                        }`}
+                      />
+                      {errors.url && (
+                        <p className="text-xs text-trae-danger mt-1 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          {errors.url}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Environment variables */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-trae-text flex items-center gap-2">
+                    <span className="w-1 h-4 bg-trae-accent rounded-full" />
+                    环境变量
+                  </h4>
+                  <button
+                    onClick={handleAddEnvVar}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs text-trae-text-secondary hover:text-trae-accent hover:bg-trae-accent/10 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    添加
+                  </button>
+                </div>
+                <div className="space-y-2 pl-3">
+                  {envVars.length === 0 ? (
+                    <p className="text-xs text-trae-text-secondary/70 pl-1">
+                      暂无环境变量配置
+                    </p>
+                  ) : (
+                    envVars.map((ev, index) => {
+                      // Check if this is a required env var from marketplace
+                      const isRequired = marketplaceTemplate?.envVars.find(
+                        (e) => e.key === ev.key,
+                      )?.required;
+                      const hasValue = ev.value.trim() !== '';
+
+                      return (
+                        <div key={index} className="flex items-center gap-2">
+                          <div className="flex-1 min-w-0">
+                            <input
+                              type="text"
+                              value={ev.key}
+                              onChange={(e) => handleEnvVarChange(index, 'key', e.target.value)}
+                              placeholder="变量名"
+                              disabled={isFromMarketplace && !!marketplaceTemplate?.envVars.find((e) => e.key === ev.key)}
+                              className="w-full px-3 py-2 bg-trae-bg border border-trae-border rounded-lg text-xs font-mono text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:border-trae-accent/40 focus:ring-1 focus:ring-trae-accent/30 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                            />
+                          </div>
+                          <div className="flex-[1.5] min-w-0">
+                            <input
+                              type="text"
+                              value={ev.value}
+                              onChange={(e) => handleEnvVarChange(index, 'value', e.target.value)}
+                              placeholder={isRequired ? '必填' : '值'}
+                              className={`w-full px-3 py-2 bg-trae-bg border rounded-lg text-xs font-mono text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:ring-1 transition-colors ${
+                                isRequired && !hasValue
+                                  ? 'border-trae-danger/40 focus:border-trae-danger focus:ring-trae-danger/30'
+                                  : 'border-trae-border focus:border-trae-accent/40 focus:ring-trae-accent/30'
+                              }`}
+                            />
+                          </div>
+                          <button
+                            onClick={() => handleRemoveEnvVar(index)}
+                            disabled={isFromMarketplace && !!marketplaceTemplate?.envVars.find((e) => e.key === ev.key)}
+                            className="p-2 rounded-lg text-trae-text-secondary hover:text-trae-danger hover:bg-trae-danger/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="删除"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                  {errors.env && (
+                    <p className="text-xs text-trae-danger flex items-center gap-1 pt-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {errors.env}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Test connection */}
+              <div>
+                <h4 className="text-sm font-medium text-trae-text mb-3 flex items-center gap-2">
+                  <span className="w-1 h-4 bg-trae-accent rounded-full" />
+                  连接测试
+                </h4>
+                <div className="pl-3">
+                  <button
+                    onClick={handleTestConnection}
+                    disabled={testing}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-trae-card/30 text-trae-text-secondary hover:bg-trae-card/50 hover:text-trae-text border border-trae-border transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {testing ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        测试中...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        测试连接
+                      </>
+                    )}
+                  </button>
+                  {testResult && (
+                    <div
+                      className={`mt-3 p-3 rounded-lg border ${
+                        testResult === 'success'
+                          ? 'bg-trae-success/10 border-trae-success/30'
+                          : 'bg-trae-danger/10 border-trae-danger/30'
+                      }`}
+                    >
+                      <div
+                        className={`flex items-center gap-2 text-sm font-medium ${
+                          testResult === 'success' ? 'text-trae-success' : 'text-trae-danger'
+                        }`}
+                      >
+                        {testResult === 'success' ? (
+                          <CheckCircle className="w-4 h-4" />
+                        ) : (
+                          <XCircle className="w-4 h-4" />
+                        )}
+                        {testResult === 'success' ? '测试成功' : '测试失败'}
+                      </div>
+                      <p className="text-xs mt-1 text-trae-text-secondary">{testMessage}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-trae-border bg-trae-card/30 shrink-0">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-trae-card/30 text-trae-text-secondary hover:bg-trae-card/50 hover:text-trae-text transition-all border border-trae-border"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSave}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-trae-accent/15 text-trae-accent hover:bg-trae-accent/25 transition-all border border-trae-accent/20"
+              >
+                保存
+              </button>
+              {!isEditing && (
+                <button
+                  onClick={handleSaveAndStart}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-trae-accent/25 text-trae-accent hover:bg-trae-accent/35 transition-all border border-trae-accent/30"
+                >
+                  <Play className="w-4 h-4" />
+                  保存并启动
+                </button>
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}

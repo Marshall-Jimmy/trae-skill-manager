@@ -1,0 +1,37 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output
+dist
+dist-ssr
+out
+build
+
+# Tauri
+src-tauri/target
+src-tauri/gen/schemas
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# Env
+.env
+.env.*
+!.env.example
+
+# TypeScript
+*.tsbuildinfo
+*.tsbuildinfo.*
+
+# Uploads / data
+.uploads
+uploads
