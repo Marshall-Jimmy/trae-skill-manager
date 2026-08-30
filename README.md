@@ -74,4 +74,4 @@ pnpm run tauri build   # 打桌面安装包
 
 ---
 
-<div align="center">Made with ❤️ at XJU · N-H-A-S</div>
+<div align="center">Made by jimmma</div>
