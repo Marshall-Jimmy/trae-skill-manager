@@ -175,12 +175,31 @@ struct GitHubFile {
     encoding: Option<String>,
 }
 
+// ─── Git Trees API ────────────────────────────────────────────────────────
+// GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1 returns the whole
+// file tree in one request, letting us discover nested skill layouts
+// (skills/category/foo/SKILL.md, single-file skills/foo.md, non-skills/ dirs)
+// that the Contents API + HEAD probing misses.
+
+#[derive(Debug, Deserialize)]
+struct GitTreeResponse {
+    truncated: bool,
+    tree: Vec<GitTreeItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitTreeItem {
+    path: String,
+    #[serde(rename = "type")]
+    item_type: String,
+}
+
 // ─── Cache ────────────────────────────────────────────────────────────────
 
 // Bump when the fetch/merge logic changes so stale caches from older builds
 // are ignored instead of masking the new behavior (e.g. the case-insensitive
 // source match and skills.sh page scraping).
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct CachedSkills {
@@ -748,35 +767,65 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
 /// into a single deduplicated list. Exposed so main.rs can run this in the
 /// background for stale-while-revalidate without blocking the first paint.
 pub(crate) async fn fetch_all_sources(token: Option<&str>) -> Vec<RemoteSkill> {
-    let mut merged = Vec::new();
-
-    // Fetch the 14 GitHub repos concurrently with a cap of 6 in flight so a
-    // slow/rate-limited repo doesn't stall the rest or hammer the API.
-    let token_for_api = token.map(|s| s.to_string());
-    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(6));
-    let mut set = tokio::task::JoinSet::new();
+    // Query the current quota once (free endpoint) and only fetch as many
+    // sources as the budget can cover; the rest fall back to cache. Each
+    // source costs up to 2 calls (main tree + master fallback), usually 1.
+    let mut budget = fetch_quota_budget(token).await;
+    let mut repos_to_fetch: Vec<&str> = Vec::new();
     for repo in KNOWN_REPOS {
-        let sem = sem.clone();
-        let repo = repo.to_string();
-        let token = token_for_api.clone();
-        set.spawn(async move {
-            let _permit = sem.acquire_owned().await.ok();
-            fetch_repo_skills_api(&repo, token.as_deref()).await
-        });
-    }
-    while let Some(res) = set.join_next().await {
-        match res {
-            Ok(Ok(s)) => merged.extend(s),
-            Ok(Err(e)) => eprintln!("Warning: API fetch failed: {}", e),
-            Err(e) => eprintln!("Warning: API fetch task failed: {}", e),
+        if budget.reserve(2) {
+            repos_to_fetch.push(repo);
+        } else {
+            eprintln!(
+                "Warning: GitHub quota low ({} calls left), using cache for {}",
+                budget.available(),
+                repo
+            );
         }
     }
+    if repos_to_fetch.is_empty() {
+        eprintln!("Warning: GitHub quota exhausted, using cache only");
+    }
 
-    // skills.sh leaderboard (real install counts).
-    let npx_results = match fetch_skills_via_skills_sh().await {
-        Ok(s) => s,
-        Err(e) => {
+    // Fetch the GitHub repos and the skills.sh leaderboard concurrently — they
+    // hit different services with independent rate limits, so running them in
+    // parallel roughly halves cold-start latency.
+    let token_for_api = token.map(|s| s.to_string());
+    let github_handle = tokio::spawn(async move {
+        // Cap 8 in flight so a slow/rate-limited repo doesn't stall the rest
+        // or hammer the API.
+        let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
+        let mut set = tokio::task::JoinSet::new();
+        for repo in repos_to_fetch {
+            let sem = sem.clone();
+            let repo = repo.to_string();
+            let token = token_for_api.clone();
+            set.spawn(async move {
+                let _permit = sem.acquire_owned().await.ok();
+                fetch_repo_skills_api(&repo, token.as_deref()).await
+            });
+        }
+        let mut out = Vec::new();
+        while let Some(res) = set.join_next().await {
+            match res {
+                Ok(Ok(s)) => out.extend(s),
+                Ok(Err(e)) => eprintln!("Warning: API fetch failed: {}", e),
+                Err(e) => eprintln!("Warning: API fetch task failed: {}", e),
+            }
+        }
+        out
+    });
+    let skills_sh_handle = tokio::spawn(fetch_skills_via_skills_sh());
+
+    let mut merged = github_handle.await.unwrap_or_default();
+    let npx_results = match skills_sh_handle.await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => {
             eprintln!("Warning: skills.sh fetch failed: {}", e);
+            Vec::new()
+        }
+        Err(e) => {
+            eprintln!("Warning: skills.sh task failed: {}", e);
             Vec::new()
         }
     };
@@ -839,16 +888,14 @@ pub async fn fetch_skills(
 ) -> Result<ApiResponse<Vec<RemoteSkill>>, String> {
     // Try cache first: cache stores the merged raw data, then we sort by view on read.
     let token_owned = token.map(|s| s.to_string());
-    let mut all_skills = if let Some(cached) = read_cache() {
+    let all_skills = if let Some(cached) = read_cache() {
         cached
     } else {
         fetch_all_sources(token_owned.as_deref()).await
     };
 
-    // Enrich skills with their GitHub repo descriptions (cached, limited to
-    // the most popular repos to stay within API rate limits).
-    enrich_repo_descriptions(&mut all_skills, token_owned.as_deref()).await;
-
+    // No blocking enrich here: repo descriptions are filled in by the delayed
+    // background pass (see main.rs spawn_delayed_enrich) so first paint stays fast.
     let all_skills = sort_skills(all_skills, view.as_deref());
 
     let total = all_skills.len() as u32;
@@ -1048,7 +1095,128 @@ async fn skill_md_branch(client: &reqwest::Client, repo: &str, path: &str) -> Op
     None
 }
 
+/// Directories that are never skills regardless of layout. Shared by the tree
+/// and Contents-API paths so both filters stay in sync.
+const SKIP_DIRS: &[&str] = &[
+    ".github", ".gitignore", ".claude", ".vscode", ".cursor", "node_modules",
+    "tests", "docs", "examples", "scripts", "bin", "src", "template", "spec",
+    "references", "resources", "assets", "images",
+];
+
+/// Discover a repo's skills from its full git tree (one request). Handles
+/// nested layouts (`skills/category/foo/SKILL.md`), single-file skills
+/// (`skills/foo.md`) and non-`skills/` roots that the Contents API misses.
+async fn fetch_repo_skills_via_tree(
+    repo: &str,
+    token: Option<&str>,
+    default_branch: &str,
+) -> Result<Vec<RemoteSkill>, String> {
+    let url = format!("{}/{}/git/trees/{}?recursive=1", GITHUB_API_BASE, repo, default_branch);
+    let client = global_client(token);
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub API request failed: {}", e))?;
+
+    if let Some(rate_msg) = check_rate_limit(&resp, token) {
+        return Err(rate_msg);
+    }
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        // Wrong branch: the caller advances to the next candidate (main→master).
+        return Err("branch not found (404)".to_string());
+    }
+    if !resp.status().is_success() {
+        return Err(format!("GitHub API returned status: {}", resp.status()));
+    }
+
+    let tree: GitTreeResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse git tree response: {}", e))?;
+
+    // Very large repos truncate the recursive tree; the caller falls back to
+    // the Contents API in that case.
+    if tree.truncated {
+        return Err("git tree truncated".to_string());
+    }
+
+    let lower = repo.to_lowercase();
+    let mut skills = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for item in &tree.tree {
+        if item.item_type != "blob" {
+            continue;
+        }
+        let p = &item.path;
+        let (name, url_path) = if p.ends_with("/SKILL.md") || p == "SKILL.md" {
+            let dir = p.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+            let name = dir.rsplit('/').next().unwrap_or(dir).to_string();
+            (name, dir.to_string())
+        } else if p.starts_with("skills/") && p.ends_with(".md") && !p["skills/".len()..].contains('/') {
+            // Single-file skill: skills/foo.md (top level only). Nested .md
+            // files (e.g. skills/<name>/references/foo.md) are skill docs, not
+            // skills themselves.
+            let stem = p.trim_end_matches(".md").to_string();
+            let name = stem.rsplit('/').next().unwrap_or(&stem).to_string();
+            (name, stem)
+        } else {
+            continue;
+        };
+        if name.is_empty() || name == "skills" {
+            continue;
+        }
+        // Filter out obvious non-skill paths (config folders, tooling, docs).
+        if SKIP_DIRS.iter().any(|s| p.split('/').any(|seg| seg == *s)) {
+            continue;
+        }
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        skills.push(RemoteSkill {
+            id: format!("{}/{}", lower, name),
+            slug: name.clone(),
+            name: name.clone(),
+            source: lower.clone(),
+            installs: 0,
+            source_type: "github".to_string(),
+            install_url: format!("https://github.com/{}", repo),
+            url: format!("https://github.com/{}/tree/{}/{}", repo, default_branch, url_path),
+            is_duplicate: false,
+            data_source: "github-tree".to_string(),
+            stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
+        });
+    }
+
+    Ok(skills)
+}
+
 async fn fetch_repo_skills_api(repo: &str, token: Option<&str>) -> Result<Vec<RemoteSkill>, String> {
+    // Prefer the Git Trees API: one request discovers nested layouts. Try the
+    // most common branches directly (main, then master) instead of fetching
+    // repo metadata first — that saves one API call per repo on cold start
+    // (13/14 known repos are on main, the rest on master). Only a 404 (wrong
+    // branch) advances to the next candidate; rate limits and network errors
+    // abort immediately. Fall back to the Contents API if the tree is
+    // truncated or the default branch is neither main nor master.
+    for branch in ["main", "master"] {
+        match fetch_repo_skills_via_tree(repo, token, branch).await {
+            Ok(skills) if !skills.is_empty() => return Ok(skills),
+            Ok(_) => {}
+            Err(e) => {
+                if !e.contains("branch not found (404)") {
+                    eprintln!("Warning: tree fetch failed for {}: {}", repo, e);
+                    break;
+                }
+            }
+        }
+    }
+
     let url = format!("{}/{}/contents/skills", GITHUB_API_BASE, repo);
     let client = global_client(token);
 
@@ -1135,7 +1303,7 @@ async fn fetch_repo_skills_from_root_api(repo: &str, token: Option<&str>) -> Res
         .await
         .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
 
-    let skip = [".github", ".gitignore", "bin", "src", "tests", "scripts", "spec", "template", "docs", "examples"];
+    let skip = SKIP_DIRS;
 
     // Verify each dir actually ships a SKILL.md (concurrently via raw HEAD
     // checks, no API rate limit); this filters out config folders (.claude/
@@ -1330,18 +1498,16 @@ async fn fetch_source_skills_via_page(client: &reqwest::Client, source: &str) ->
 }
 
 async fn fetch_skills_via_skills_sh() -> Result<Vec<RemoteSkill>, String> {
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to build client: {}", e))?;
+    // Reuse the anonymous global client so skills.sh requests share the same
+    // connection pool instead of re-handshaking per request.
+    let client = global_client(None);
 
     // Scrape each curated repo's skills.sh page for its complete skill list
     // (the fuzzy search API only surfaces a fraction of a repo's skills), plus
     // the search API as a supplement for any skills the page omits, plus a few
     // broad terms for general community coverage. Keeping the request count low
     // avoids skills.sh's 60 req/min rate limit.
-    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(12));
     let mut handles = Vec::new();
 
     for repo in KNOWN_REPOS {
@@ -1958,6 +2124,10 @@ struct GitHubLicense {
 
 // ─── Repo Info Cache ──────────────────────────────────────────────────────
 
+// Repo metadata (description/license/stars) changes very slowly; 7 days keeps
+// the cache useful across many app launches without re-burning quota.
+const REPO_INFO_TTL_SECS: i64 = 7 * 24 * 60 * 60;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct CachedRepoInfo {
     info: RepoInfo,
@@ -1978,7 +2148,7 @@ fn read_repo_info_cache() -> Option<std::collections::HashMap<String, CachedRepo
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs() as i64;
     let filtered: std::collections::HashMap<_, _> = cache
         .into_iter()
-        .filter(|(_, v)| now - v.timestamp <= CACHE_DURATION_SECS as i64)
+        .filter(|(_, v)| now - v.timestamp <= REPO_INFO_TTL_SECS)
         .collect();
     if filtered.is_empty() { None } else { Some(filtered) }
 }
@@ -2123,6 +2293,54 @@ pub async fn get_github_rate_limit(token: Option<&str>) -> Result<GithubRateLimi
         reset_unix: core["reset"].as_i64().unwrap_or(0),
         authenticated: token.is_some_and(|t| !t.is_empty()),
     })
+}
+
+// ─── GitHub quota budget ──────────────────────────────────────────────────
+// Tracks the remaining API quota so a cold start doesn't blow through the
+// unauthenticated 60/hr limit. Each source costs up to 2 calls (main tree +
+// master fallback), usually 1.
+
+#[derive(Debug, Clone)]
+pub struct QuotaBudget {
+    pub remaining: u64,
+    pub limit: u64,
+    consumed: u64,
+}
+
+impl QuotaBudget {
+    /// Calls still affordable this round after reserving a 20% safety buffer
+    /// so the app never hits the hard limit mid-fetch.
+    pub fn available(&self) -> u64 {
+        let safety = (self.limit as f64 * 0.2) as u64;
+        self.remaining.saturating_sub(self.consumed).saturating_sub(safety)
+    }
+
+    /// Reserve `n` calls; returns false if the budget can't cover them.
+    pub fn reserve(&mut self, n: u64) -> bool {
+        if self.available() >= n {
+            self.consumed += n;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Query the current quota (the rate_limit endpoint itself doesn't consume
+/// quota). Falls back to an "unlimited" budget on failure so callers still run.
+pub async fn fetch_quota_budget(token: Option<&str>) -> QuotaBudget {
+    match get_github_rate_limit(token).await {
+        Ok(rl) => QuotaBudget {
+            remaining: rl.remaining,
+            limit: rl.limit,
+            consumed: 0,
+        },
+        Err(_) => QuotaBudget {
+            remaining: u64::MAX,
+            limit: u64::MAX,
+            consumed: 0,
+        },
+    }
 }
 
 /// Batch fetch repo info for multiple repos (used for enriching trending/hot lists).

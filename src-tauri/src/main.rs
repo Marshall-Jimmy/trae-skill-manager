@@ -86,6 +86,24 @@ fn get_github_token() -> String {
 /// calls while the cache is stale don't spawn a pile of concurrent refreshes.
 static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Delayed low-priority pass that enriches repo descriptions a few seconds
+/// after the first paint, so the UI never blocks on it. Reads the cached list
+/// (no re-fetch) and pushes the enriched result to the frontend.
+fn spawn_delayed_enrich(app: &tauri::AppHandle, token: Option<String>) {
+    if REFRESHING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let app2 = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let mut skills = commands::fetch::read_cache_allow_stale().unwrap_or_default();
+        commands::fetch::enrich_repo_descriptions(&mut skills, token.as_deref()).await;
+        let skills = commands::fetch::sort_skills(skills, Some("trending"));
+        let _ = app2.emit("skills-refreshed", serde_json::json!({ "skills": skills }));
+        REFRESHING.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
 #[tauri::command(rename_all = "camelCase")]
 async fn fetch_skills(
     app: tauri::AppHandle,
@@ -104,6 +122,9 @@ async fn fetch_skills(
             let token2 = token_opt.clone();
             tauri::async_runtime::spawn(async move {
                 let mut skills = commands::fetch::fetch_all_sources(token2.as_deref()).await;
+                // Delay description enrichment a few seconds so it runs as a
+                // low-priority pass after the main fetch has spent its quota.
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 commands::fetch::enrich_repo_descriptions(&mut skills, token2.as_deref()).await;
                 // Emit trending-sorted: every non-trending tab re-sorts/filters
                 // client-side, so this order is only authoritative for the
@@ -112,6 +133,10 @@ async fn fetch_skills(
                 let _ = app2.emit("skills-refreshed", serde_json::json!({ "skills": skills }));
                 REFRESHING.store(false, std::sync::atomic::Ordering::SeqCst);
             });
+        } else if !REFRESHING.load(std::sync::atomic::Ordering::SeqCst) {
+            // Cache is fresh but descriptions may be missing: run a delayed
+            // low-priority enrich from the cached list (no re-fetch).
+            spawn_delayed_enrich(&app, token_opt.clone());
         }
         let all_skills = commands::fetch::sort_skills(cached, view.as_deref());
         let total = all_skills.len() as u32;
@@ -126,11 +151,12 @@ async fn fetch_skills(
         });
     }
 
-    // No cache at all: blocking first fetch.
-    let mut all_skills = commands::fetch::fetch_all_sources(token_opt.as_deref()).await;
-    commands::fetch::enrich_repo_descriptions(&mut all_skills, token_opt.as_deref()).await;
+    // No cache at all: blocking first fetch (no enrich — descriptions are
+    // filled in by a delayed background pass so the first paint stays fast).
+    let all_skills = commands::fetch::fetch_all_sources(token_opt.as_deref()).await;
     let all_skills = commands::fetch::sort_skills(all_skills, view.as_deref());
     let total = all_skills.len() as u32;
+    spawn_delayed_enrich(&app, token_opt.clone());
     Ok(ApiResponse {
         data: all_skills,
         pagination: Some(Pagination {
