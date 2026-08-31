@@ -105,9 +105,16 @@ trae-skill-manager/
 
 ## 界面预览
 
-<img src="assets/screenshot.jpg" alt="TRAE Skill Manager 发现页" width="100%" />
+<img src="assets/screenshot-discover.png" alt="发现页：技能卡片网格、分类过滤、排序与搜索" width="100%" />
 
 *发现页：技能卡片网格、分类过滤、排序与搜索。*
+
+<div align="center">
+  <img src="assets/screenshot-mcp.png" alt="MCP 管理中心" width="49%" />
+  <img src="assets/screenshot-settings.png" alt="设置页" width="49%" />
+</div>
+
+*MCP 管理中心与设置页。*
 
 ## 文档
 
