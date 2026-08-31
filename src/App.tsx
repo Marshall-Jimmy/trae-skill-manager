@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Sidebar, type TabId } from './components/Sidebar';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
+import { ToolSelector } from './components/ToolSelector';
 import { TitleBar } from './components/TitleBar';
 import { ContextMenu, type ContextMenuItem } from './components/ContextMenu';
 import { AboutDialog } from './components/AboutDialog';
@@ -168,6 +169,9 @@ function App() {
       await useSkillStore.getState().loadConfig();
       const config = useSkillStore.getState().config;
       applyTheme(config.theme);
+
+      // Load tool adapters status (installed / running)
+      await useSkillStore.getState().loadToolsStatus();
 
       // Load local skills
       await useSkillStore.getState().loadLocalSkills();
@@ -352,7 +356,7 @@ function App() {
         >
           <ProjectSwitcher />
           <div className="flex items-center gap-2">
-            {/* Additional top bar items can go here */}
+            <ToolSelector />
           </div>
         </motion.div>
 

@@ -4,6 +4,7 @@ mod commands;
 #[cfg(debug_assertions)]
 mod debug_server;
 mod models;
+mod tools;
 mod utils;
 
 use models::*;
@@ -54,21 +55,42 @@ fn set_taskbar_icon(_window: &tauri::WebviewWindow) {}
 
 // ─── Scan Commands ────────────────────────────────────────────────────────
 
-#[tauri::command]
-fn scan_local_skills(path: Option<String>) -> Result<Vec<LocalSkill>, String> {
+#[tauri::command(rename_all = "camelCase")]
+fn scan_local_skills(path: Option<String>, tool_id: Option<String>) -> Result<Vec<LocalSkill>, String> {
     let scan_path = match path {
         Some(p) if !p.trim().is_empty() => PathBuf::from(p),
         _ => {
-            let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-            home.join(".trae-cn").join("skills")
+            let tool = tools::get_tool(tool_id.as_deref().unwrap_or("trae"))
+                .unwrap_or_else(tools::default_tool);
+            tool.global_dir().ok_or("无法确定技能目录")?
         }
     };
     Ok(commands::scan::scan_directory(&scan_path))
 }
 
-#[tauri::command]
-fn scan_project_skills(project_path: String) -> Result<Vec<LocalSkill>, String> {
-    Ok(commands::scan::scan_project_skills(&project_path))
+#[tauri::command(rename_all = "camelCase")]
+fn scan_project_skills(project_path: String, tool_id: Option<String>) -> Result<Vec<LocalSkill>, String> {
+    let tool = tools::get_tool(tool_id.as_deref().unwrap_or("trae"))
+        .unwrap_or_else(tools::default_tool);
+    Ok(commands::scan::scan_project_skills(&project_path, tool))
+}
+
+// ─── Tool Adapter Commands ────────────────────────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_tools_status() -> Vec<models::ToolStatus> {
+    tools::all_tools()
+        .iter()
+        .map(|t| models::ToolStatus {
+            id: t.id().to_string(),
+            display_name: t.display_name().to_string(),
+            icon: t.icon().to_string(),
+            installed: t.detect_installed(),
+            running: t.detect_running().is_some(),
+            global_dir: t.global_dir().map(|p| p.to_string_lossy().to_string()),
+            project_dir: t.adapter().project_dir.to_string(),
+        })
+        .collect()
 }
 
 // ─── Fetch Commands ──────────────────────────────────────────────────────
@@ -196,6 +218,7 @@ async fn install_skill_streamed(
     skill_name: String,
     target_path: Option<String>,
     skill_path_hint: Option<String>,
+    tool_id: Option<String>,
 ) -> Result<InstallResult, String> {
     commands::install::install_skill_streamed(
         app,
@@ -203,6 +226,7 @@ async fn install_skill_streamed(
         &skill_name,
         target_path.as_deref(),
         skill_path_hint.as_deref(),
+        tool_id.as_deref(),
     ).await
 }
 
@@ -389,6 +413,7 @@ fn get_config() -> AppConfig {
         github: GithubConfig {
             token: String::new(),
         },
+        active_tool_id: "trae".to_string(),
     };
 
     // Try to load from config file
@@ -568,6 +593,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             scan_local_skills,
             scan_project_skills,
+            get_tools_status,
             fetch_skills,
             search_skills,
             fetch_skill_detail,

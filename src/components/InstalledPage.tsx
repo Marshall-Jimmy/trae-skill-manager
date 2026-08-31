@@ -84,6 +84,8 @@ export function InstalledPage() {
     currentProjectId,
     getCurrentProject,
     loadProjectSkills,
+    // Tool Adapter
+    getActiveTool,
   } = useSkillStore();
 
   const [filter, setFilter] = useState<FilterTab>('all');
@@ -116,6 +118,7 @@ export function InstalledPage() {
 
   const currentProject = getCurrentProject();
   const isProjectMode = !!currentProjectId;
+  const activeTool = getActiveTool();
 
   // Get the current skills list based on scope tab
   const displaySkills = useMemo(() => {
@@ -346,7 +349,21 @@ export function InstalledPage() {
       {/* Header with stats */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-semibold text-trae-text">已安装 Skill</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold text-trae-text">已安装 Skill</h1>
+            {activeTool && (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-trae-card/60 border border-trae-border text-[11px] text-trae-text-secondary">
+                <Globe className="w-3 h-3 text-trae-accent" />
+                目标：{activeTool.displayName}
+                {activeTool.running && (
+                  <span className="flex items-center gap-1 text-trae-success">
+                    <span className="w-1.5 h-1.5 rounded-full bg-trae-success animate-pulse" />
+                    运行中
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-4 mt-2 flex-wrap">
             <span className="text-sm text-trae-text-secondary">
               总计{' '}

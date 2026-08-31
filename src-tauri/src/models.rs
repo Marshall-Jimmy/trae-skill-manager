@@ -230,6 +230,27 @@ pub struct AppConfig {
     pub translation: TranslationConfig,
     #[serde(default)]
     pub github: GithubConfig,
+    /// 当前目标工具（Phase 3 Tool Adapter），默认 "trae"
+    #[serde(default = "default_active_tool")]
+    pub active_tool_id: String,
+}
+
+fn default_active_tool() -> String {
+    "trae".to_string()
+}
+
+// ─── Tool Status (from Tool Adapter registry) ─────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolStatus {
+    pub id: String,
+    pub display_name: String,
+    pub icon: String,
+    pub installed: bool,
+    pub running: bool,
+    pub global_dir: Option<String>,
+    pub project_dir: String,
 }
 
 // ─── Install Output Event (streamed to frontend) ──────────────────────────

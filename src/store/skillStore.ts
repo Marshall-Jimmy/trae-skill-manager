@@ -19,6 +19,7 @@ import type {
   ViewMode,
   DiscoverTab,
   Project,
+  ToolStatus,
 } from '../types';
 
 // ─── Sort options ─────────────────────────────────────────────────────────
@@ -52,6 +53,10 @@ interface SkillState {
 
   // Config
   config: AppConfig;
+
+  // Tool Adapter (Phase 3)
+  activeToolId: string;
+  toolsStatus: ToolStatus[];
 
   // Selection
   selectedSkills: Set<string>;
@@ -162,6 +167,10 @@ interface SkillActions {
   batchRemove: (paths: string[]) => Promise<{ total: number; succeeded: number; failed: number; results: { skillName: string; success: boolean; message: string }[] }>;
   loadConfig: () => Promise<void>;
   updateConfig: (config: AppConfig) => Promise<void>;
+  loadToolsStatus: () => Promise<void>;
+  switchTool: (toolId: string) => Promise<void>;
+  getActiveTool: () => ToolStatus | undefined;
+  getActiveSkillsPath: () => string;
   toggleSelectSkill: (id: string) => void;
   clearSelection: () => void;
   setSortBy: (sort: SortBy) => void;
@@ -256,6 +265,7 @@ const DEFAULT_CONFIG: AppConfig = {
   globalSkillsPath: '',
   projectPath: '',
   theme: 'dark',
+  activeToolId: 'trae',
   translation: {
     enabled: false,
     targetLanguage: 'zh',
@@ -722,6 +732,8 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
   localLoading: false,
 
   config: DEFAULT_CONFIG,
+  activeToolId: 'trae',
+  toolsStatus: [],
 
   selectedSkills: new Set<string>(),
 
@@ -937,12 +949,12 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
       });
 
       // Invoke the streaming install command with configured target path
-      const config = get().config;
       const result = await invoke<InstallResult>('install_skill_streamed', {
         source,
         skillName,
-        targetPath: config.globalSkillsPath || undefined,
+        targetPath: get().getActiveSkillsPath() || undefined,
         skillPathHint: skillPathHint || undefined,
+        toolId: get().activeToolId,
       });
       set({ localSkills: result.localSkills });
     } catch (e) {
@@ -959,12 +971,12 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
 
   installSkill: async (source: string, skillName: string, skillPathHint?: string) => {
     try {
-      const config = get().config;
       const result = await invoke<InstallResult>('install_skill_streamed', {
         source,
         skillName,
-        targetPath: config.globalSkillsPath || undefined,
+        targetPath: get().getActiveSkillsPath() || undefined,
         skillPathHint: skillPathHint || undefined,
+        toolId: get().activeToolId,
       });
       // Update local skills from result
       set({ localSkills: result.localSkills });
@@ -977,9 +989,9 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
   loadLocalSkills: async () => {
     set({ localLoading: true });
     try {
-      const config = get().config;
       const skills = await invoke<LocalSkill[]>('scan_local_skills', {
-        path: config.globalSkillsPath || '',
+        path: get().getActiveSkillsPath(),
+        toolId: get().activeToolId,
       });
       set({ localSkills: skills, localLoading: false });
     } catch (e) {
@@ -1206,11 +1218,44 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
       const merged = mergeConfig(config);
       set({
         config: merged,
+        activeToolId: merged.activeToolId || 'trae',
         translations: loadTranslationCacheForLanguage(merged.translation.targetLanguage),
       });
     } catch (e) {
       console.error('Failed to load config:', e);
     }
+  },
+
+  loadToolsStatus: async () => {
+    try {
+      const status = await invoke<ToolStatus[]>('get_tools_status');
+      set({ toolsStatus: status });
+    } catch (e) {
+      console.error('Failed to load tools status:', e);
+    }
+  },
+
+  switchTool: async (toolId: string) => {
+    const config = { ...get().config, activeToolId: toolId };
+    try {
+      await invoke('save_config', { config });
+      set({ config, activeToolId: toolId });
+      await get().loadLocalSkills();
+    } catch (e) {
+      console.error('Failed to switch tool:', e);
+    }
+  },
+
+  getActiveTool: (): ToolStatus | undefined => {
+    const { toolsStatus, activeToolId } = get();
+    return toolsStatus.find((t) => t.id === activeToolId);
+  },
+
+  getActiveSkillsPath: (): string => {
+    const { activeToolId, toolsStatus, config } = get();
+    // Trae 尊重用户在设置里的自定义路径；其他工具用适配器探测的全局目录
+    if (activeToolId === 'trae') return config.globalSkillsPath || '';
+    return toolsStatus.find((t) => t.id === activeToolId)?.globalDir || '';
   },
 
   updateConfig: async (config: AppConfig) => {

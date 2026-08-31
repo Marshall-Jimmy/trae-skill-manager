@@ -222,6 +222,20 @@ export interface AppConfig {
   theme: string;
   translation: TranslationConfig;
   github: GithubConfig;
+  /** 当前目标工具（Phase 3 Tool Adapter），默认 "trae" */
+  activeToolId: string;
+}
+
+// ─── Tool Status (from Tool Adapter registry) ─────────────────────────────
+
+export interface ToolStatus {
+  id: string;
+  displayName: string;
+  icon: string;
+  installed: boolean;
+  running: boolean;
+  globalDir?: string | null;
+  projectDir: string;
 }
 
 // ─── Install Result ───────────────────────────────────────────────────────────

@@ -306,12 +306,14 @@ async fn execute_command(
             let skill_name = arg_str(&args, "skill_name");
             let target_path = arg_opt_str(&args, "target_path");
             let hint = arg_opt_str(&args, "skill_path_hint");
+            let tool_id = arg_opt_str(&args, "tool_id");
             crate::commands::install::install_skill_streamed(
                 state.app.get(),
                 &source,
                 &skill_name,
                 target_path.as_deref(),
                 hint.as_deref(),
+                tool_id.as_deref(),
             )
             .await
             .map(to_value)
@@ -326,7 +328,10 @@ async fn execute_command(
         }
         "scan_project_skills" => {
             let path = arg_str(&args, "project_path");
-            Ok(to_value(crate::commands::scan::scan_project_skills(&path)))
+            let tool_id = arg_opt_str(&args, "tool_id");
+            let tool = crate::tools::get_tool(tool_id.as_deref().unwrap_or("trae"))
+                .unwrap_or_else(crate::tools::default_tool);
+            Ok(to_value(crate::commands::scan::scan_project_skills(&path, tool)))
         }
         "fetch_skill_detail" => {
             let source = arg_str(&args, "source");

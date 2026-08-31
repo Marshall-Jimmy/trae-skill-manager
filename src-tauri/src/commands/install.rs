@@ -1,5 +1,4 @@
 use crate::models::{InstallOutputEvent, InstallResult, InstallRecord, SkillManifest};
-use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::SystemTime;
@@ -56,44 +55,6 @@ fn count_files(path: &Path) -> u32 {
     count
 }
 
-/// Register a skill in TRAE's managedSkills registry (skill-config.json) so it
-/// appears in the TRAE Work skill manager UI. The registry sits next to the
-/// skills directory (e.g. ~/.trae-cn/skill-config.json).
-fn register_managed_skill(skills_path: &Path, skill_name: &str) {
-    let config_path = match skills_path.parent() {
-        Some(p) => p.join("skill-config.json"),
-        None => return,
-    };
-    if !config_path.exists() {
-        return;
-    }
-
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    let mut json: Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-
-    let managed = match json.get_mut("managedSkills").and_then(|v| v.as_object_mut()) {
-        Some(m) => m,
-        None => return,
-    };
-    if managed.contains_key(skill_name) {
-        return;
-    }
-
-    managed.insert(
-        skill_name.to_string(),
-        Value::String("user_upload".to_string()),
-    );
-    if let Ok(new_content) = serde_json::to_string_pretty(&json) {
-        let _ = std::fs::write(&config_path, new_content);
-    }
-}
-
 // ─── Skill Verification ───────────────────────────────────────────────────
 
 /// Verify that a directory contains a valid skill.
@@ -111,6 +72,25 @@ fn verify_skill(path: &Path) -> bool {
     match std::fs::read_to_string(&skill_md) {
         Ok(content) => !content.trim().is_empty(),
         Err(_) => false,
+    }
+}
+
+/// 安装后校验 SKILL.md frontmatter，把不合规项作为警告输出到安装日志，
+/// 不阻断安装（避免破坏现有可安装技能）。
+fn report_frontmatter_issues(app: &tauri::AppHandle, dest: &Path) {
+    let content = std::fs::read_to_string(dest.join("SKILL.md")).unwrap_or_default();
+    let parsed = crate::tools::frontmatter::parse_skill(&content);
+    if !parsed.has_frontmatter {
+        return;
+    }
+    let errors = crate::tools::frontmatter::validate_frontmatter(&parsed.frontmatter);
+    if !errors.is_empty() {
+        emit(
+            app,
+            InstallOutputEvent::Stderr {
+                data: format!("SKILL.md frontmatter 校验: {}", errors.join("；")),
+            },
+        );
     }
 }
 
@@ -288,13 +268,17 @@ impl Drop for TempDir {
 ///
 /// Uses transactional install: download to temp dir → verify → move to target.
 /// Automatically writes history record after install.
+/// `tool_id` 指定目标工具（Phase 3），不传则用默认 Trae。
 pub async fn install_skill_streamed(
     app: tauri::AppHandle,
     source: &str,
     skill_name: &str,
     target_path: Option<&str>,
     skill_path_hint: Option<&str>,
+    tool_id: Option<&str>,
 ) -> Result<InstallResult, String> {
+    let tool = crate::tools::get_tool(tool_id.unwrap_or("trae"))
+        .unwrap_or_else(crate::tools::default_tool);
     let start_time = timestamp_ms();
     let normalized_source = normalize_source(source);
     let repo_name = normalized_source
@@ -322,10 +306,12 @@ pub async fn install_skill_streamed(
         format!("{}/{}", normalized_source, skill_name)
     };
 
-    // Resolve target skills directory
+    // Resolve target skills directory (tool-aware when no explicit target)
     let skills_path = match target_path {
         Some(p) if !p.trim().is_empty() => PathBuf::from(p),
-        _ => crate::utils::path::detect_skills_path(),
+        _ => tool
+            .global_dir()
+            .ok_or("无法确定技能目录，请检查工具是否已安装")?,
     };
 
     // Ensure skills directory exists
@@ -385,7 +371,7 @@ pub async fn install_skill_streamed(
                 latest_version: None,
             };
             let _ = crate::commands::scan::write_manifest(&dest, &manifest);
-            register_managed_skill(&skills_path, skill_name);
+            let _ = tool.post_install(&dest);
 
             let result = build_install_result(
                 true,
@@ -409,6 +395,7 @@ pub async fn install_skill_streamed(
                 start_time,
             );
 
+            report_frontmatter_issues(&app, &dest);
             emit_done(&app, true, &target_label);
             return Ok(result);
         }
@@ -463,7 +450,7 @@ pub async fn install_skill_streamed(
                 latest_version: None,
             };
             let _ = crate::commands::scan::write_manifest(&dest, &manifest);
-            register_managed_skill(&skills_path, skill_name);
+            let _ = tool.post_install(&dest);
 
             let result = build_install_result(
                 true,
@@ -486,6 +473,7 @@ pub async fn install_skill_streamed(
                 start_time,
             );
 
+            report_frontmatter_issues(&app, &dest);
             emit_done(&app, true, &target_label);
             return Ok(result);
         }
@@ -536,7 +524,7 @@ pub async fn install_skill_streamed(
                         latest_version: None,
                     };
                     let _ = crate::commands::scan::write_manifest(&p, &manifest);
-                    register_managed_skill(&skills_path, skill_name);
+                    let _ = tool.post_install(&p);
 
                     (s.path.clone(), v, f)
                 }
@@ -564,6 +552,7 @@ pub async fn install_skill_streamed(
                 start_time,
             );
 
+            report_frontmatter_issues(&app, Path::new(&dest_path));
             emit_done(&app, true, &target_label);
             return Ok(result);
         }
@@ -945,49 +934,4 @@ fn normalize_source(source: &str) -> String {
         return rest.trim_end_matches('/').to_string();
     }
     trimmed.trim_end_matches('/').to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn register_managed_skill_adds_to_registry() {
-        let tmp = std::env::temp_dir().join("tsm-reg-test");
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp.join("skills")).unwrap();
-        let config = tmp.join("skill-config.json");
-        std::fs::write(&config, r#"{"disabledSkills":[],"managedSkills":{"existing":"marketplace"},"deletedSkills":[]}"#).unwrap();
-
-        register_managed_skill(&tmp.join("skills"), "test-skill");
-
-        let content = std::fs::read_to_string(&config).unwrap();
-        let json: Value = serde_json::from_str(&content).unwrap();
-        let managed = json["managedSkills"].as_object().unwrap();
-        assert!(managed.contains_key("test-skill"), "test-skill should be registered");
-        assert_eq!(managed["test-skill"], "user_upload");
-        assert!(managed.contains_key("existing"), "existing entry preserved");
-
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn register_managed_skill_skips_duplicate() {
-        let tmp = std::env::temp_dir().join("tsm-reg-test2");
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp.join("skills")).unwrap();
-        let config = tmp.join("skill-config.json");
-        std::fs::write(&config, r#"{"managedSkills":{"dup":"marketplace"}}"#).unwrap();
-
-        register_managed_skill(&tmp.join("skills"), "dup");
-        register_managed_skill(&tmp.join("skills"), "dup");
-
-        let content = std::fs::read_to_string(&config).unwrap();
-        let json: Value = serde_json::from_str(&content).unwrap();
-        let managed = json["managedSkills"].as_object().unwrap();
-        assert_eq!(managed.len(), 1, "duplicate should not be added twice");
-        assert_eq!(managed["dup"], "marketplace", "original value preserved");
-
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
 }

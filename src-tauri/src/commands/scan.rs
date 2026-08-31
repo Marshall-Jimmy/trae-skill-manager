@@ -123,9 +123,10 @@ pub fn write_manifest(skill_dir: &Path, manifest: &SkillManifest) -> Result<(), 
         .map_err(|e| format!("Failed to write manifest: {}", e))
 }
 
-/// Scan a project's .trae/skills/ directory for project-level skills.
-pub fn scan_project_skills(project_path: &str) -> Vec<LocalSkill> {
-    let skills_dir = Path::new(project_path).join(".trae").join("skills");
+/// Scan a project's tool-specific skills directory (e.g. .trae/skills/) for
+/// project-level skills. The directory is resolved through the tool adapter.
+pub fn scan_project_skills(project_path: &str, tool: &dyn crate::tools::Tool) -> Vec<LocalSkill> {
+    let skills_dir = tool.project_dir(Path::new(project_path));
 
     if !skills_dir.exists() {
         return Vec::new();
