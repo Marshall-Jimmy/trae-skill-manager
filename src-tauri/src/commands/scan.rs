@@ -65,10 +65,7 @@ pub fn scan_directory(path: &Path) -> Vec<LocalSkill> {
             .or_else(|| parsed.name.clone())
             .unwrap_or(dir_name_str);
 
-        let description = manifest
-            .as_ref()
-            .and_then(|_| parsed.description.clone())
-            .unwrap_or_default();
+        let description = parsed.description.clone().unwrap_or_default();
 
         let version = manifest
             .as_ref()

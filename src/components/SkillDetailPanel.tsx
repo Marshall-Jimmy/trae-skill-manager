@@ -98,12 +98,73 @@ function renderMarkdown(md: string): string {
   return html;
 }
 
+// ─── Document segmentation (keep code blocks out of translation) ──────────
+
+interface DocSegment {
+  type: 'code' | 'text';
+  content: string;
+}
+
+const INLINE_PLACEHOLDER = '⟦TRAE_CODE_BLOCK_';
+
+/** Split markdown into alternating fenced-code/text segments. */
+function splitFencedSegments(md: string): DocSegment[] {
+  const segments: DocSegment[] = [];
+  const fencedRegex = /```[\s\S]*?```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = fencedRegex.exec(md)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', content: md.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: 'code', content: match[0] });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < md.length) {
+    segments.push({ type: 'text', content: md.slice(lastIndex) });
+  }
+  return segments;
+}
+
+/** Replace inline code with visible placeholders the translator is told to keep verbatim. */
+function protectInlineCode(text: string): { text: string; blocks: string[] } {
+  const blocks: string[] = [];
+  const protectedText = text.replace(/`([^`\n]+)`/g, (_m, code) => {
+    const idx = blocks.length;
+    blocks.push(`\`${code}\``);
+    return `${INLINE_PLACEHOLDER}${idx}⟧`;
+  });
+  return { text: protectedText, blocks };
+}
+
+/** Normalize full-width digits (０-９) to ASCII. */
+function toAsciiDigits(s: string): string {
+  return s.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xff10 + 0x30));
+}
+
+/**
+ * Restore inline code placeholders after translation.
+ * LLMs often mangle the placeholder: strip the ⟦⟧ brackets, drop "BLOCK",
+ * or convert digits to full-width (e.g. ⟦TRAE_CODE_BLOCK_0⟧ → TRAE_CODE_０).
+ * Match flexibly so these variants still restore correctly.
+ */
+function restoreInlineCode(text: string, blocks: string[]): string {
+  return text.replace(
+    /(?:⟦[ \t]*)?TRAE[_\t -]*CODE[_\t -]*(?:BLOCK)?[_\t -]*([0-9０-９]+)(?:[ \t]*⟧)?/gi,
+    (_m, idx) => {
+      const n = Number(toAsciiDigits(idx));
+      return blocks[n] !== undefined ? blocks[n] : _m;
+    },
+  );
+}
+
 // ─── Format helpers ───────────────────────────────────────────────────────
 
-function formatInstalls(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toString();
+function formatInstalls(n: number | null | undefined): string {
+  const v = n ?? 0;
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
+  return v.toString();
 }
 
 function formatDataSource(source?: string): string {
@@ -238,7 +299,15 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
 
   const { config, getTranslatedDescription, fetchGithubReadme, detailSkill, detailLoading, fetchGithubRepoInfo, getRepoInfo } = useSkillStore();
   const translatedDesc = skill?.description ? getTranslatedDescription(skill.description) : undefined;
-  const showTranslation = config.translation.enabled && translatedDesc;
+  const [liveTranslatedDesc, setLiveTranslatedDesc] = useState<string | undefined>(undefined);
+  const [translatingDesc, setTranslatingDesc] = useState(false);
+  const [docTranslated, setDocTranslated] = useState(false);
+  const [translatedDoc, setTranslatedDoc] = useState<string | undefined>(undefined);
+  const [translatingDoc, setTranslatingDoc] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+  const [descError, setDescError] = useState<string | null>(null);
+  const effectiveTranslatedDesc = liveTranslatedDesc || translatedDesc;
+  const showTranslation = config.translation.enabled && (effectiveTranslatedDesc || translatingDesc);
 
   const isFav = skill ? store.isFavorite(skill.id) : false;
 
@@ -347,6 +416,36 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
     // Trigger repo info fetch (results stored in store cache)
     fetchGithubRepoInfo(skill.source);
   }, [skill?.id, skill?.source]);
+
+  // ── Auto-translate description on open ─────────────────────────────────
+
+  useEffect(() => {
+    setLiveTranslatedDesc(undefined);
+    setTranslatingDesc(false);
+    setDescError(null);
+    setDocTranslated(false);
+    setTranslatedDoc(undefined);
+    setDocError(null);
+    if (!skill?.description) return;
+    const state = useSkillStore.getState();
+    if (!state.config.translation.enabled) return;
+    const cached = state.getTranslatedDescription(skill.description);
+    if (cached) {
+      setLiveTranslatedDesc(cached);
+      return;
+    }
+    setTranslatingDesc(true);
+    state
+      .translateText(skill.description)
+      .then((t) => {
+        setLiveTranslatedDesc(t);
+        setTranslatingDesc(false);
+      })
+      .catch((e) => {
+        setTranslatingDesc(false);
+        setDescError(String(e));
+      });
+  }, [skill?.id]);
 
   // ── Current displayed content based on doc mode ────────────────────────
 
@@ -489,7 +588,57 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
     }
   };
 
-  const renderedHtml = useMemo(() => (displayedContent ? renderMarkdown(displayedContent) : ''), [displayedContent]);
+  const handleToggleDocTranslation = async () => {
+    if (docTranslated) {
+      setDocTranslated(false);
+      return;
+    }
+    if (!displayedContent) return;
+    setTranslatingDoc(true);
+    setDocError(null);
+    try {
+      const segments = splitFencedSegments(displayedContent);
+      const textSegments = segments.filter((s) => s.type === 'text');
+      if (textSegments.length === 0) {
+        setTranslatedDoc(displayedContent);
+        setDocTranslated(true);
+        return;
+      }
+      const results = await Promise.all(
+        textSegments.map(async (s) => {
+          const { text, blocks } = protectInlineCode(s.content);
+          const t = await store.translateText(text);
+          return t ? restoreInlineCode(t, blocks) : undefined;
+        }),
+      );
+      if (!results.some(Boolean)) {
+        setDocError('未配置翻译。请到设置中开启「AI 翻译」并填写 API Key，或开启「沉浸式翻译」');
+        return;
+      }
+      let idx = 0;
+      const translatedDoc = segments
+        .map((s) => {
+          if (s.type === 'code') return s.content;
+          const t = results[idx++];
+          if (!t) return s.content;
+          const leading = s.content.match(/^\s*/)?.[0] ?? '';
+          const trailing = s.content.match(/\s*$/)?.[0] ?? '';
+          return leading + t + trailing;
+        })
+        .join('');
+      setTranslatedDoc(translatedDoc);
+      setDocTranslated(true);
+    } catch (e) {
+      setDocError(`翻译失败: ${String(e)}`);
+    } finally {
+      setTranslatingDoc(false);
+    }
+  };
+
+  const renderedHtml = useMemo(() => {
+    const source = docTranslated && translatedDoc ? translatedDoc : displayedContent;
+    return source ? renderMarkdown(source) : '';
+  }, [displayedContent, docTranslated, translatedDoc]);
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -522,7 +671,7 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: '30%', opacity: 0 }}
             transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 25 }}
-            className="fixed top-0 right-0 z-50 w-[460px] h-screen bg-trae-sidebar border-l border-trae-border shadow-2xl flex flex-col"
+            className="fixed top-0 right-0 z-50 w-[460px] h-screen bg-trae-sidebar border-l border-trae-border shadow-hard-lg flex flex-col"
           >
             {/* Header */}
             <div className="flex items-start justify-between px-5 py-4 border-b border-trae-border shrink-0">
@@ -597,8 +746,17 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
                         <div className="flex items-center gap-1 text-xs text-trae-accent mb-1">
                           <Languages className="w-3 h-3" />
                           翻译
+                          {translatingDesc && (
+                            <Loader2 className="w-3 h-3 animate-spin ml-1" />
+                          )}
                         </div>
-                        <p className="text-xs text-trae-text leading-relaxed">{translatedDesc}</p>
+                        {effectiveTranslatedDesc ? (
+                          <p className="text-xs text-trae-text leading-relaxed">{effectiveTranslatedDesc}</p>
+                        ) : translatingDesc ? (
+                          <p className="text-xs text-trae-text-secondary">正在翻译...</p>
+                        ) : descError ? (
+                          <p className="text-xs text-trae-danger leading-relaxed">{descError}</p>
+                        ) : null}
                       </div>
                     )}
 
@@ -970,6 +1128,23 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
                             )}
                           </div>
                           <button
+                            onClick={handleToggleDocTranslation}
+                            disabled={translatingDoc || !displayedContent}
+                            className={`flex items-center gap-1 text-xs transition-colors ${
+                              docTranslated
+                                ? 'text-trae-accent'
+                                : 'text-trae-text-secondary hover:text-trae-accent'
+                            }`}
+                            title={docTranslated ? '显示原文' : '翻译全文'}
+                          >
+                            {translatingDoc ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Languages className="w-3 h-3" />
+                            )}
+                            {translatingDoc ? '翻译中...' : docTranslated ? '原文' : '翻译'}
+                          </button>
+                          <button
                             onClick={handleCopyAll}
                             className="flex items-center gap-1 text-xs text-trae-text-secondary hover:text-trae-accent transition-colors"
                             title="复制全文"
@@ -987,6 +1162,11 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
                             )}
                           </button>
                         </div>
+                        {docError && (
+                          <div className="mb-3 px-3 py-2 rounded-lg bg-trae-danger/10 border border-trae-danger/20 text-xs text-trae-danger">
+                            {docError}
+                          </div>
+                        )}
                         <div
                           className="prose-sm"
                           dangerouslySetInnerHTML={{ __html: renderedHtml }}

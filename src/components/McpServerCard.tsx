@@ -7,6 +7,7 @@ import {
   Trash2,
   AlertCircle,
 } from 'lucide-react';
+import { McpIcon } from '../lib/iconMap';
 import type { McpServer } from '../types';
 
 interface McpServerCardProps {
@@ -121,7 +122,7 @@ export function McpServerCard({
       }}
       whileHover={{ y: -1, transition: { type: 'spring', mass: 1, stiffness: 300, damping: 25 } }}
       whileTap={{ scale: 0.995, transition: { type: 'spring', mass: 1, stiffness: 500, damping: 30 } }}
-      className={`bg-trae-card/40 border rounded-xl p-4 hover:bg-trae-card/60 transition-colors cursor-pointer group focus:outline-none focus:ring-2 focus:ring-trae-accent/40 ${
+      className={`bg-trae-card/40 border rounded-xl p-4 hover:bg-trae-card/60 transition-colors cursor-pointer group focus:outline-none focus:ring-2 focus:ring-trae-accent/40 shadow-hard-sm ${
         server.status === 'error'
           ? 'border-trae-danger/30 hover:border-trae-danger/50'
           : server.status === 'running'
@@ -131,8 +132,8 @@ export function McpServerCard({
     >
       <div className="flex items-start gap-3">
         {/* Icon */}
-        <div className="w-10 h-10 rounded-lg bg-trae-card/60 border border-trae-border flex items-center justify-center text-xl shrink-0">
-          {server.icon || '🔌'}
+        <div className="w-10 h-10 rounded-lg bg-trae-card/60 border border-trae-border flex items-center justify-center shrink-0">
+          <McpIcon name={server.icon} className="w-5 h-5 text-trae-accent" />
         </div>
 
         {/* Main content */}
@@ -288,12 +289,12 @@ export function McpMarketplaceCard({
         delay: Math.min(index * 0.02, 0.2),
       }}
       whileHover={{ y: -2, transition: { type: 'spring', mass: 1, stiffness: 300, damping: 25 } }}
-      className="bg-trae-card/30 border border-trae-border rounded-xl p-4 hover:bg-trae-card/50 hover:border-trae-accent/30 transition-all group"
+      className="bg-trae-card/30 border border-trae-border rounded-xl p-4 hover:bg-trae-card/50 hover:border-trae-accent/30 transition-all group shadow-hard-sm"
     >
       <div className="flex items-start gap-3">
         {/* Icon */}
-        <div className="w-10 h-10 rounded-lg bg-trae-card/60 border border-trae-border flex items-center justify-center text-xl shrink-0">
-          {server.icon}
+        <div className="w-10 h-10 rounded-lg bg-trae-card/60 border border-trae-border flex items-center justify-center shrink-0">
+          <McpIcon name={server.icon} className="w-5 h-5 text-trae-accent" />
         </div>
 
         {/* Content */}

@@ -116,7 +116,7 @@ export function ProjectSwitcher() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.96 }}
             transition={springFast}
-            className="absolute top-full left-0 mt-1.5 w-64 bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl z-50 py-1.5 overflow-hidden"
+            className="absolute top-full left-0 mt-1.5 w-64 bg-trae-sidebar border border-trae-border rounded-xl shadow-hard z-50 py-1.5 overflow-hidden"
           >
             {/* Global option */}
             <motion.button
@@ -216,7 +216,7 @@ export function ProjectSwitcher() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               transition={springMedium}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-96 max-w-[90vw] bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl overflow-hidden"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-96 max-w-[90vw] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-trae-border">
                 <h3 className="text-trae-text font-semibold text-base">

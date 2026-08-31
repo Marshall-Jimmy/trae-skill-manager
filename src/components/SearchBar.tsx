@@ -311,7 +311,7 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -6, scale: 0.96 }}
               transition={{ type: 'spring', mass: 1, stiffness: 400, damping: 28 }}
-              className="absolute top-full left-0 right-0 mt-1.5 bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl z-50 py-2 overflow-hidden max-h-[400px] overflow-y-auto"
+              className="absolute top-full left-0 right-0 mt-1.5 bg-trae-sidebar border border-trae-border rounded-xl shadow-hard z-50 py-2 overflow-hidden max-h-[400px] overflow-y-auto"
               role="listbox"
             >
               {/* Search History Section */}

@@ -168,7 +168,7 @@ export function HistoryPage() {
                     {/* Card */}
                     <motion.div
                       whileHover={{ scale: 1.005, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } }}
-                      className="flex-1 bg-trae-card/30 border border-trae-border rounded-lg p-4 hover:border-trae-border-hover transition-colors min-w-0"
+                      className="flex-1 bg-trae-card/30 border border-trae-border rounded-lg p-4 hover:border-trae-border-hover transition-colors min-w-0 shadow-hard-sm"
                     >
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span

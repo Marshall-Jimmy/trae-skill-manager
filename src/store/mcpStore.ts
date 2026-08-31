@@ -1,11 +1,64 @@
 import { create } from 'zustand';
-import type { McpServer, McpMarketplaceServer, McpServerStatus } from '../types';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { McpServer, McpMarketplaceServer, McpServerStatus, McpConnectionConfig, McpLogEvent, McpExitEvent } from '../types';
 import { getMcpMarketplaceServerById } from '../lib/mcpMarketplace';
 
 // ─── Storage key ──────────────────────────────────────────────────────────
 
 const MCP_SERVERS_KEY = 'trae-skill-manager-mcp-servers';
 const MAX_LOG_LINES = 200;
+
+// ─── Process listeners ────────────────────────────────────────────────────
+
+const serverListeners = new Map<string, UnlistenFn>();
+
+async function setupServerListeners(id: string) {
+  const existing = serverListeners.get(id);
+  if (existing) {
+    existing();
+    serverListeners.delete(id);
+  }
+
+  const unlistenLog = await listen<McpLogEvent>(`mcp-log-${id}`, (event) => {
+    const { stream, data } = event.payload;
+    useMcpStore.getState().appendLog(id, data, stream === 'stderr' ? 'stderr' : 'stdout');
+  });
+  const unlistenExit = await listen<McpExitEvent>(`mcp-exit-${id}`, (event) => {
+    const { code } = event.payload;
+    useMcpStore.getState().updateServer(id, { status: 'stopped', pid: undefined });
+    useMcpStore.getState().appendLog(
+      id,
+      `[MCP] 进程已退出 (code: ${code ?? '?'})`,
+      'stdout',
+    );
+  });
+
+  serverListeners.set(id, () => {
+    unlistenLog();
+    unlistenExit();
+  });
+}
+
+function cleanupServerListeners(id: string) {
+  const unlisten = serverListeners.get(id);
+  if (unlisten) {
+    unlisten();
+    serverListeners.delete(id);
+  }
+}
+
+function buildConnectionConfig(server: McpServer): McpConnectionConfig {
+  return {
+    name: server.name,
+    command: server.command,
+    args: server.args,
+    env: server.env,
+    cwd: server.cwd,
+    configType: server.configType,
+    url: server.url,
+  };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -168,10 +221,10 @@ export const useMcpStore = create<McpState & McpActions>((set, get) => ({
   removeServer: (id) => {
     const server = get().servers.find((s) => s.id === id);
     // Stop first if running
-    if (server && server.status === 'running') {
-      // TODO: actual process termination via Rust backend
-      // For MVP, just mark as stopped
+    if (server && server.status === 'running' && server.pid) {
+      invoke('mcp_stop_server', { pid: server.pid }).catch(() => {});
     }
+    cleanupServerListeners(id);
     const next = get().servers.filter((s) => s.id !== id);
     set({ servers: next });
     saveMcpServers(next);
@@ -214,41 +267,39 @@ export const useMcpStore = create<McpState & McpActions>((set, get) => ({
     const server = get().servers.find((s) => s.id === id);
     if (!server) return;
 
-    // TODO: Actual process management via Tauri/Rust backend
-    // For MVP, simulate the start process with status transitions
-    // In production, use @tauri-apps/plugin-shell's Command API or a Rust command
-
-    // Simulate: mark as running after a short delay
     get().updateServer(id, { status: 'running', errorMessage: undefined, logs: [] });
+    get().appendLog(id, `[MCP] 正在启动 ${server.name}...`, 'stdout');
 
-    // Simulate initial log output
-    setTimeout(() => {
-      get().appendLog(id, `[MCP] Starting ${server.name}...`, 'stdout');
-      get().appendLog(id, `[MCP] Command: ${server.command} ${server.args.join(' ')}`, 'stdout');
-      get().appendLog(id, `[MCP] Server started successfully (stdio mode)`, 'stdout');
-      get().appendLog(id, `[MCP] Ready to receive requests`, 'stdout');
-    }, 500);
-
-    // Note: Real implementation would be something like:
-    // const child = new Command(server.command, server.args, { env: server.env, cwd: server.cwd });
-    // child.on('close', () => { ... });
-    // child.stdout.on('data', (data) => { ... });
-    // child.spawn();
+    try {
+      await setupServerListeners(id);
+      const pid = await invoke<number>('mcp_start_server', {
+        serverId: id,
+        config: buildConnectionConfig(server),
+      });
+      get().updateServer(id, { status: 'running', pid, lastUsedAt: Date.now() });
+      get().appendLog(id, `[MCP] 已启动 (PID: ${pid})`, 'stdout');
+    } catch (e) {
+      get().updateServer(id, { status: 'error', errorMessage: String(e) });
+      get().appendLog(id, `[MCP] 启动失败: ${String(e)}`, 'stderr');
+    }
   },
 
   stopServer: async (id) => {
     const server = get().servers.find((s) => s.id === id);
     if (!server) return;
 
-    // TODO: Actual process termination via Tauri/Rust backend
-    // For MVP, simulate stopping
+    get().appendLog(id, '[MCP] 正在停止...', 'stdout');
 
-    get().appendLog(id, `[MCP] Stopping server...`, 'stdout');
+    if (server.pid) {
+      try {
+        await invoke('mcp_stop_server', { pid: server.pid });
+      } catch (e) {
+        get().appendLog(id, `[MCP] 停止失败: ${String(e)}`, 'stderr');
+      }
+    }
 
-    setTimeout(() => {
-      get().updateServer(id, { status: 'stopped', pid: undefined });
-      get().appendLog(id, `[MCP] Server stopped`, 'stdout');
-    }, 300);
+    get().updateServer(id, { status: 'stopped', pid: undefined });
+    get().appendLog(id, '[MCP] 已停止', 'stdout');
   },
 
   restartServer: async (id) => {
@@ -256,10 +307,8 @@ export const useMcpStore = create<McpState & McpActions>((set, get) => ({
     if (!server) return;
 
     await get().stopServer(id);
-
-    setTimeout(() => {
-      get().startServer(id);
-    }, 500);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await get().startServer(id);
   },
 
   appendLog: (id, line, type) => {

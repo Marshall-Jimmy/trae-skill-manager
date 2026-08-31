@@ -101,6 +101,9 @@ interface SkillState {
   // Discover tab
   discoverTab: DiscoverTab;
 
+  // Search mode (official | github)
+  searchMode: 'official' | 'github';
+
   // Translations
   translations: Map<string, string>;
   translating: boolean;
@@ -191,12 +194,16 @@ interface SkillActions {
   // Discover tab
   setDiscoverTab: (tab: DiscoverTab) => void;
 
+  // Search mode
+  setSearchMode: (mode: 'official' | 'github') => void;
+
   // Enhanced filtered skills (combines all filters)
   getEnhancedFilteredSkills: () => RemoteSkill[];
 
   // Translation actions
   translateSkills: (skills: RemoteSkill[]) => Promise<void>;
   getTranslatedDescription: (original: string) => string | undefined;
+  translateText: (text: string) => Promise<string | undefined>;
   clearTranslations: () => void;
 
   // GitHub community search actions
@@ -255,6 +262,7 @@ const DEFAULT_CONFIG: AppConfig = {
     apiKey: '',
     apiBase: 'https://api.openai.com/v1',
     model: 'gpt-4o-mini',
+    useImmersive: false,
   },
   github: {
     token: '',
@@ -318,6 +326,76 @@ function saveFavorites(favorites: string[]): void {
   try {
     if (typeof window === 'undefined') return;
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+  } catch {
+    // ignore
+  }
+}
+
+// ─── Session state helpers (restore last page/filter state on restart) ────
+
+const SESSION_STATE_KEY = 'trae-skill-manager-session-state';
+
+function loadSessionState(): { sortBy: SortBy; viewMode: ViewMode; discoverTab: DiscoverTab } | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem(SESSION_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return {
+      sortBy: ['installs', 'stars', 'name', 'updated'].includes(parsed.sortBy) ? parsed.sortBy : 'installs',
+      viewMode: ['grid', 'list'].includes(parsed.viewMode) ? parsed.viewMode : 'grid',
+      discoverTab: ['all', 'trending', 'recent', 'favorites'].includes(parsed.discoverTab) ? parsed.discoverTab : 'all',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveSessionState(state: { sortBy: SortBy; viewMode: ViewMode; discoverTab: DiscoverTab }): void {
+  try {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
+const initialSessionState = loadSessionState();
+
+// ─── Translation cache helpers (persisted, language-aware) ───────────────
+
+const TRANSLATION_CACHE_KEY = 'trae-skill-manager-translation-cache';
+
+function readTranslationCache(): { language: string; entries: Record<string, string> } | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem(TRANSLATION_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.language === 'string' && parsed.entries && typeof parsed.entries === 'object') {
+      return { language: parsed.language, entries: parsed.entries };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function loadTranslationCacheForLanguage(lang: string): Map<string, string> {
+  const cached = readTranslationCache();
+  if (cached && cached.language === lang) {
+    return new Map(Object.entries(cached.entries));
+  }
+  return new Map();
+}
+
+function saveTranslationCache(map: Map<string, string>, lang: string): void {
+  try {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem(
+      TRANSLATION_CACHE_KEY,
+      JSON.stringify({ language: lang, entries: Object.fromEntries(map) })
+    );
   } catch {
     // ignore
   }
@@ -659,7 +737,7 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
 
   installOutput: [],
 
-  sortBy: 'installs',
+  sortBy: initialSessionState?.sortBy ?? 'installs',
   currentPage: 0,
   hasMore: false,
 
@@ -682,10 +760,11 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
   selectedTags: [],
   sourceFilters: [],
   qualityFilter: 'all',
-  viewMode: 'grid',
-  discoverTab: 'all',
+  viewMode: initialSessionState?.viewMode ?? 'grid',
+  discoverTab: initialSessionState?.discoverTab ?? 'all',
+  searchMode: 'official',
 
-  translations: new Map<string, string>(),
+  translations: loadTranslationCacheForLanguage(DEFAULT_CONFIG.translation.targetLanguage),
   translating: false,
 
   githubSearchResults: [],
@@ -1006,7 +1085,9 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
     const results: { skillName: string; success: boolean; message: string }[] = [];
     let completed = 0;
 
-    const installPromises = skills.map(async ({ source, skillName }) => {
+    // Serial queue: install one at a time so a single failure doesn't corrupt
+    // concurrent git/npx processes, and progress stays predictable.
+    for (const { source, skillName } of skills) {
       set({ batchProgress: { ...get().batchProgress, currentSkillName: skillName } });
       try {
         const config = get().config;
@@ -1018,20 +1099,13 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
         });
         completed++;
         set({ batchProgress: { ...get().batchProgress, current: completed } });
-        return { skillName, success: true, message: 'Installed' };
+        results.push({ skillName, success: true, message: 'Installed' });
       } catch (e) {
         completed++;
         set({ batchProgress: { ...get().batchProgress, current: completed } });
-        return { skillName, success: false, message: String(e) };
+        results.push({ skillName, success: false, message: String(e) });
       }
-    });
-
-    const settled = await Promise.allSettled(installPromises);
-    settled.forEach((result) => {
-      if (result.status === 'fulfilled') {
-        results.push(result.value);
-      }
-    });
+    }
 
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.length - succeeded;
@@ -1129,7 +1203,11 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
   loadConfig: async () => {
     try {
       const config = await invoke<AppConfig>('get_config');
-      set({ config: mergeConfig(config) });
+      const merged = mergeConfig(config);
+      set({
+        config: merged,
+        translations: loadTranslationCacheForLanguage(merged.translation.targetLanguage),
+      });
     } catch (e) {
       console.error('Failed to load config:', e);
     }
@@ -1163,6 +1241,7 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
 
   setSortBy: (sort: SortBy) => {
     set({ sortBy: sort });
+    saveSessionState({ sortBy: sort, viewMode: get().viewMode, discoverTab: get().discoverTab });
   },
 
   loadMore: async () => {
@@ -1298,12 +1377,18 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
 
   setViewMode: (mode: ViewMode) => {
     set({ viewMode: mode });
+    saveSessionState({ sortBy: get().sortBy, viewMode: mode, discoverTab: get().discoverTab });
   },
 
   // ── Discover Tab ───────────────────────────────────────────────────────
 
   setDiscoverTab: (tab: DiscoverTab) => {
     set({ discoverTab: tab });
+    saveSessionState({ sortBy: get().sortBy, viewMode: get().viewMode, discoverTab: tab });
+  },
+
+  setSearchMode: (mode: 'official' | 'github') => {
+    set({ searchMode: mode });
   },
 
   // ── Enhanced Filtered Skills ──────────────────────────────────────────
@@ -1329,9 +1414,11 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
       skills = skills.filter((s) => favorites.includes(s.id));
     } else if (discoverTab === 'trending') {
       skills = [...trendingSkills];
-    } else if (discoverTab === 'popular') {
-      // Sort by installs (popular = most installed)
-      skills = skills.sort((a, b) => b.installs - a.installs);
+    } else if (discoverTab === 'recent') {
+      // 最近更新: only skills with a known update time, newest first
+      skills = skills
+        .filter((s) => s.updatedAt !== undefined && s.updatedAt > 0)
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
     }
 
     // Filter by category
@@ -1374,15 +1461,18 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
       skills = skills.filter((skill) => skill.stars !== undefined && skill.stars > 0);
     }
 
-    // Sort
-    if (sortBy === 'installs') {
-      skills.sort((a, b) => b.installs - a.installs);
-    } else if (sortBy === 'stars') {
-      skills.sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0));
-    } else if (sortBy === 'name') {
-      skills.sort((a, b) => a.name.localeCompare(b.name));
-    } else if (sortBy === 'updated') {
-      skills.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    // Sort. The 最近更新 tab defines its own canonical order, so the generic
+    // sortBy must not override it.
+    if (discoverTab !== 'recent') {
+      if (sortBy === 'installs') {
+        skills.sort((a, b) => b.installs - a.installs);
+      } else if (sortBy === 'stars') {
+        skills.sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0));
+      } else if (sortBy === 'name') {
+        skills.sort((a, b) => a.name.localeCompare(b.name));
+      } else if (sortBy === 'updated') {
+        skills.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+      }
     }
 
     return skills;
@@ -1393,7 +1483,8 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
   translateSkills: async (skills: RemoteSkill[]) => {
     const { config } = get();
     const t = config.translation;
-    if (!t.enabled || !t.apiKey) return;
+    if (!t.enabled) return;
+    if (!t.useImmersive && !t.apiKey) return;
 
     // Collect descriptions that need translation
     const descriptionsToTranslate: string[] = [];
@@ -1413,6 +1504,7 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
         apiKey: t.apiKey,
         apiBase: t.apiBase,
         model: t.model,
+        useImmersive: t.useImmersive,
       });
 
       const newTranslations = new Map(get().translations);
@@ -1420,6 +1512,7 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
         newTranslations.set(original, translated);
       }
       set({ translations: newTranslations });
+      saveTranslationCache(newTranslations, get().config.translation.targetLanguage);
     } catch (e) {
       console.error('Translation failed:', e);
     } finally {
@@ -1431,8 +1524,44 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
     return get().translations.get(original);
   },
 
+  translateText: async (text: string): Promise<string | undefined> => {
+    const { config } = get();
+    const t = config.translation;
+    if (!t.enabled) return undefined;
+    if (!t.useImmersive && !t.apiKey) return undefined;
+
+    const trimmed = text.trim();
+    if (!trimmed) return undefined;
+
+    const cached = get().translations.get(trimmed);
+    if (cached) return cached;
+
+    const result = await invoke<Record<string, string>>('translate_skill_descriptions', {
+      texts: [trimmed],
+      targetLanguage: t.targetLanguage,
+      apiKey: t.apiKey,
+      apiBase: t.apiBase,
+      model: t.model,
+      useImmersive: t.useImmersive,
+    });
+    const translated = result[trimmed];
+    if (translated) {
+      const newTranslations = new Map(get().translations);
+      newTranslations.set(trimmed, translated);
+      set({ translations: newTranslations });
+      saveTranslationCache(newTranslations, get().config.translation.targetLanguage);
+      return translated;
+    }
+    return undefined;
+  },
+
   clearTranslations: () => {
     set({ translations: new Map<string, string>() });
+    try {
+      if (typeof window !== 'undefined') localStorage.removeItem(TRANSLATION_CACHE_KEY);
+    } catch {
+      // ignore
+    }
     invoke('clear_translation_cache').catch(console.error);
   },
 
@@ -2201,3 +2330,8 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
     }
   },
 }));
+
+// TEMP DEBUG: expose store for CDP inspection
+if (typeof window !== 'undefined') {
+  (window as any).__skillStore = useSkillStore;
+}

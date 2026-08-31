@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSkillStore } from '../store/skillStore';
-import { Folder, Sun, Moon, Monitor, Save, Loader2, Check, Download, Upload, Languages, Key, Globe, Sparkles, Trash2, Zap, Rabbit, Turtle, Gauge, Github, Eye, EyeOff, Edit2, FolderOpen, Plus } from 'lucide-react';
+import { Folder, Sun, Moon, Monitor, Save, Loader2, Check, Download, Upload, Languages, Key, Globe, Sparkles, Trash2, Zap, Rabbit, Turtle, Gauge, Github, Eye, EyeOff, Edit2, FolderOpen, Plus, RefreshCw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppConfig, TranslationConfig, Project } from '../types';
 import { useMotionConfig, type MotionSpeed, SPEED_MULTIPLIERS } from '../lib/motionConfig';
@@ -172,6 +172,13 @@ export function SettingsPage() {
   const [showGithubToken, setShowGithubToken] = useState(false);
   const [testGithubStatus, setTestGithubStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testGithubError, setTestGithubError] = useState<string | null>(null);
+  const [githubRateLimit, setGithubRateLimit] = useState<{
+    limit: number;
+    remaining: number;
+    resetUnix: number;
+    authenticated: boolean;
+  } | null>(null);
+  const [githubRateLoading, setGithubRateLoading] = useState(false);
   const { config: motionConfig, setSpeed, setEnabled } = useMotionConfig();
 
   useEffect(() => {
@@ -213,6 +220,31 @@ export function SettingsPage() {
       document.body.classList.remove('theme-light');
     }
   }, []);
+
+  // Apply theme immediately when the selection changes (not just on save)
+  useEffect(() => {
+    applyTheme(localConfig.theme);
+  }, [localConfig.theme, applyTheme]);
+
+  const loadGithubRateLimit = useCallback(async () => {
+    setGithubRateLoading(true);
+    try {
+      const info = await invoke<{
+        limit: number;
+        remaining: number;
+        resetUnix: number;
+        authenticated: boolean;
+      }>('get_github_rate_limit');
+      setGithubRateLimit(info);
+    } catch {
+      setGithubRateLimit(null);
+    }
+    setGithubRateLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadGithubRateLimit();
+  }, [loadGithubRateLimit]);
 
   if (isLoading) {
     return (
@@ -272,7 +304,7 @@ export function SettingsPage() {
 
   const handleTestTranslation = async () => {
     const t = localConfig.translation;
-    if (!t.enabled || !t.apiKey) {
+    if (!t.enabled || (!t.useImmersive && !t.apiKey)) {
       setTestTranslationStatus('error');
       setTimeout(() => setTestTranslationStatus('idle'), 2000);
       return;
@@ -286,11 +318,14 @@ export function SettingsPage() {
         apiKey: t.apiKey,
         apiBase: t.apiBase,
         model: t.model,
+        useImmersive: t.useImmersive,
       });
       setTestTranslationStatus('success');
     } catch (e) {
       setTestTranslationStatus('error');
-      setTestTranslationError(typeof e === 'string' ? e : '连接失败，请检查 API Key 和 Base URL');
+      setTestTranslationError(
+        typeof e === 'string' ? e : '连接失败，请检查 API Key 和 Base URL'
+      );
     }
     setTimeout(() => setTestTranslationStatus('idle'), 3000);
   };
@@ -401,7 +436,7 @@ export function SettingsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0 }}
         >
-          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4">
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <label className="flex items-center gap-2 text-sm text-trae-text mb-2">
               <Folder className="w-4 h-4 text-trae-accent" />
               TRAE 全局 Skill 目录
@@ -431,7 +466,7 @@ export function SettingsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.06 }}
         >
-          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4">
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <div className="flex items-center justify-between mb-3">
               <label className="flex items-center gap-2 text-sm text-trae-text">
                 <Folder className="w-4 h-4 text-trae-accent" />
@@ -479,7 +514,7 @@ export function SettingsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.12 }}
         >
-          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4">
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <label className="flex items-center gap-2 text-sm text-trae-text mb-2">
               {localConfig.theme === 'dark' ? <Moon className="w-4 h-4 text-trae-accent" /> : localConfig.theme === 'light' ? <Sun className="w-4 h-4 text-trae-accent" /> : <Monitor className="w-4 h-4 text-trae-accent" />}
               主题
@@ -517,7 +552,7 @@ export function SettingsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.15 }}
         >
-          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4">
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <label className="flex items-center gap-2 text-sm text-trae-text mb-3">
               <Gauge className="w-4 h-4 text-trae-accent" />
               动画速度
@@ -589,7 +624,7 @@ export function SettingsPage() {
                             ease: 'easeInOut',
                           }}
                         >
-                          <div className="w-full h-full rounded-full bg-trae-accent shadow-lg shadow-trae-accent/30" />
+                          <div className="w-full h-full rounded-full bg-trae-accent shadow-hard shadow-trae-accent/30" />
                         </motion.div>
                         {/* Speed indicator */}
                         <div className="absolute bottom-0 left-0 right-0 flex justify-between text-[10px] text-trae-text-secondary/40">
@@ -611,7 +646,7 @@ export function SettingsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.18 }}
         >
-          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4">
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <label className="flex items-center gap-2 text-sm text-trae-text mb-3">
               <Download className="w-4 h-4 text-trae-accent" />
               配置导入/导出
@@ -655,7 +690,7 @@ export function SettingsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.24 }}
         >
-          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4">
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <label className="flex items-center gap-2 text-sm text-trae-text mb-3">
               <Languages className="w-4 h-4 text-trae-accent" />
               AI 翻译设置
@@ -678,6 +713,22 @@ export function SettingsPage() {
 
               {localConfig.translation.enabled && (
                 <>
+                  {/* Immersive Translate (free) toggle */}
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localConfig.translation.useImmersive}
+                      onChange={(e) => updateTranslation({ useImmersive: e.target.checked })}
+                      className="w-4 h-4 rounded border-trae-border bg-trae-bg text-trae-accent focus:ring-trae-accent/30"
+                    />
+                    <span className="text-sm text-trae-text">使用沉浸式翻译（免费，无需 API Key）</span>
+                  </label>
+                  {localConfig.translation.useImmersive && (
+                    <p className="text-xs text-trae-text-secondary -mt-1">
+                      基于 Google Translate 免费端点，与沉浸式翻译免费版同链路。仅用于 Skill 描述翻译，不影响应用其他功能。
+                    </p>
+                  )}
+
                   {/* Target Language */}
                   <div>
                     <label className="flex items-center gap-1.5 text-xs text-trae-text-secondary mb-1.5">
@@ -697,6 +748,8 @@ export function SettingsPage() {
                     </select>
                   </div>
 
+                  {!localConfig.translation.useImmersive && (
+                    <>
                   {/* API Key */}
                   <div>
                     <label className="flex items-center gap-1.5 text-xs text-trae-text-secondary mb-1.5">
@@ -741,6 +794,8 @@ export function SettingsPage() {
                       className="w-full bg-trae-bg/50 border border-trae-border rounded-lg px-3 py-2 text-sm text-trae-text font-mono focus:outline-none focus:border-trae-accent/50"
                     />
                   </div>
+                    </>
+                  )}
 
                   {/* Test & Clear buttons */}
                   <div className="flex flex-col gap-2">
@@ -795,7 +850,7 @@ export function SettingsPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.3 }}
         >
-          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4">
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <label className="flex items-center gap-2 text-sm text-trae-text mb-3">
               <Github className="w-4 h-4 text-trae-accent" />
               GitHub 集成
@@ -859,6 +914,48 @@ export function SettingsPage() {
                 </div>
                 {testGithubError && testGithubStatus === 'error' && (
                   <p className="text-xs text-trae-danger">{testGithubError}</p>
+                )}
+              </div>
+
+              {/* Rate limit status */}
+              <div className="flex items-center justify-between gap-2 bg-trae-bg/30 border border-trae-border rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-trae-text-secondary">
+                  <Gauge className="w-3.5 h-3.5 text-trae-accent" />
+                  <span>API 限额</span>
+                </div>
+                {githubRateLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 text-trae-accent animate-spin" />
+                ) : githubRateLimit ? (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span
+                      className={
+                        githubRateLimit.remaining < 10
+                          ? 'text-trae-danger font-medium'
+                          : 'text-trae-text'
+                      }
+                    >
+                      {githubRateLimit.remaining} / {githubRateLimit.limit}
+                    </span>
+                    <span className="text-trae-text-secondary/60">
+                      {githubRateLimit.authenticated ? '已认证' : '未认证'}
+                    </span>
+                    {githubRateLimit.remaining < 10 && (
+                      <span className="text-trae-danger/80">
+                        {new Date(githubRateLimit.resetUnix * 1000).toLocaleTimeString()} 重置
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={loadGithubRateLimit}
+                      className="p-1 rounded-md text-trae-text-secondary hover:text-trae-text hover:bg-trae-card/60 transition-colors"
+                      aria-label="刷新限额"
+                      title="刷新"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-trae-text-secondary/60">获取失败</span>
                 )}
               </div>
             </div>

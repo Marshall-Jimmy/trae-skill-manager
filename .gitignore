@@ -35,3 +35,24 @@ npm-debug.log*
 # Uploads / data
 .uploads
 uploads
+
+# Dev scratch / debug artifacts
+cdp-*.cjs
+cdp-*.js
+gh-*.json
+gh-*.html
+parse-gh.cjs
+parse_test.*
+test-*.ps1
+test-*.mjs
+debug-*.ps1
+debug-*.json
+screenshots/
+analyze_icons.cjs
+icon-variants*.mjs
+inspect_ico.ps1
+find_*.ps1
+click_overflow.ps1
+crop_tray.mjs
+extract-topics*.cjs
+screenshot-app.ps1

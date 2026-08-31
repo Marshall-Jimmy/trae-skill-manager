@@ -17,6 +17,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { useMcpStore } from '../store/mcpStore';
+import { McpIcon } from '../lib/iconMap';
 import type { McpServer } from '../types';
 
 type DetailTab = 'overview' | 'config' | 'logs';
@@ -113,14 +114,14 @@ export function McpDetailPanel({ server, onClose }: McpDetailPanelProps) {
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: '30%', opacity: 0 }}
             transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 25 }}
-            className="fixed top-0 right-0 z-50 w-[460px] h-screen bg-trae-sidebar border-l border-trae-border shadow-2xl flex flex-col"
+            className="fixed top-0 right-0 z-50 w-[460px] h-screen bg-trae-sidebar border-l border-trae-border shadow-hard-lg flex flex-col"
           >
             {/* Header */}
             <div className="flex items-start justify-between px-5 py-4 border-b border-trae-border shrink-0">
               <div className="flex-1 min-w-0 pr-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-trae-card/60 border border-trae-border flex items-center justify-center text-xl shrink-0">
-                    {server.icon || '🔌'}
+                  <div className="w-10 h-10 rounded-lg bg-trae-card/60 border border-trae-border flex items-center justify-center shrink-0">
+                    <McpIcon name={server.icon} className="w-5 h-5 text-trae-accent" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h2 className="text-trae-text font-semibold text-lg truncate">{server.name}</h2>

@@ -1,0 +1,68 @@
+import {
+  Github,
+  ListTodo,
+  Database,
+  Table,
+  BarChart3,
+  Clapperboard,
+  Bot,
+  Search,
+  MessageSquare,
+  FileText,
+  Mail,
+  Folder,
+  Gem,
+  FolderOpen,
+  Brain,
+  Palette,
+  Plug,
+  Server,
+  Globe,
+  Code,
+  Briefcase,
+  Sparkles,
+  Link2,
+  GitBranch,
+  Clock,
+  Container,
+  Boxes,
+  type LucideIcon,
+} from 'lucide-react';
+
+const iconMap: Record<string, LucideIcon> = {
+  github: Github,
+  linear: ListTodo,
+  postgres: Database,
+  sqlite: Table,
+  nocodb: BarChart3,
+  playwright: Clapperboard,
+  puppeteer: Bot,
+  brave: Search,
+  fetch: Link2,
+  git: GitBranch,
+  time: Clock,
+  docker: Container,
+  redis: Boxes,
+  mongodb: Database,
+  slack: MessageSquare,
+  notion: FileText,
+  gmail: Mail,
+  drive: Folder,
+  obsidian: Gem,
+  filesystem: FolderOpen,
+  memory: Brain,
+  figma: Palette,
+  plug: Plug,
+  server: Server,
+  globe: Globe,
+  code: Code,
+  briefcase: Briefcase,
+  sparkles: Sparkles,
+};
+
+export const mcpIconNames = Object.keys(iconMap);
+
+export function McpIcon({ name, className }: { name?: string; className?: string }) {
+  const Icon = (name && iconMap[name]) || Plug;
+  return <Icon className={className} />;
+}

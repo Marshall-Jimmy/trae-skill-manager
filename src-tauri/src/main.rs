@@ -1,11 +1,55 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod debug_server;
 mod models;
 mod utils;
 
 use models::*;
 use std::path::PathBuf;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::Manager;
+
+/// Set the window's big (taskbar) icon from a high-res PNG so the taskbar
+/// renders crisply instead of upscaling the 16x16 small icon.
+#[cfg(target_os = "windows")]
+fn set_taskbar_icon(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{CreateIcon, SendMessageW, ICON_BIG, WM_SETICON};
+
+    let Ok(img) = tauri::image::Image::from_bytes(include_bytes!("../icons/256x256.png")) else {
+        return;
+    };
+    let rgba = img.rgba();
+    let (w, h) = (img.width() as i32, img.height() as i32);
+
+    let mut and_mask = Vec::with_capacity((w * h) as usize);
+    for px in rgba.chunks_exact(4) {
+        and_mask.push(px[3].wrapping_sub(u8::MAX));
+    }
+    let mut bgra = rgba.to_vec();
+    for px in bgra.chunks_exact_mut(4) {
+        px.swap(0, 2);
+    }
+
+    let Ok(hicon) = (unsafe { CreateIcon(None, w, h, 1, 32, and_mask.as_ptr(), bgra.as_ptr()) }) else {
+        return;
+    };
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            SendMessageW(
+                hwnd,
+                WM_SETICON,
+                Some(WPARAM(ICON_BIG as usize)),
+                Some(LPARAM(hicon.0 as isize)),
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_taskbar_icon(_window: &tauri::WebviewWindow) {}
 
 // ─── Scan Commands ────────────────────────────────────────────────────────
 
@@ -57,6 +101,7 @@ async fn fetch_skill_detail(source: String, slug: String) -> Result<SkillDetail,
 
 #[tauri::command(rename_all = "camelCase")]
 async fn list_repo_skills(source: String) -> Result<Vec<RepoSkillInfo>, String> {
+    eprintln!("[debug-main] list_repo_skills called with source={}", source);
     let token = get_github_token();
     commands::fetch::list_repo_skills(&source, if token.is_empty() { None } else { Some(&token) }).await
 }
@@ -141,8 +186,17 @@ async fn translate_skill_descriptions(
     api_key: String,
     api_base: String,
     model: String,
+    use_immersive: bool,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    commands::translate::translate_texts(texts, &target_language, &api_key, &api_base, &model).await
+    commands::translate::translate_texts(
+        texts,
+        &target_language,
+        &api_key,
+        &api_base,
+        &model,
+        use_immersive,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -200,6 +254,12 @@ async fn test_github_token(token: String) -> Result<(), String> {
 }
 
 #[tauri::command(rename_all = "camelCase")]
+async fn get_github_rate_limit() -> Result<commands::fetch::GithubRateLimit, String> {
+    let token = get_github_token();
+    commands::fetch::get_github_rate_limit(if token.is_empty() { None } else { Some(&token) }).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
 async fn fetch_github_repos_info_batch(repo_full_names: Vec<String>) -> Result<std::collections::HashMap<String, RepoInfo>, String> {
     let token = get_github_token();
     Ok(commands::fetch::fetch_github_repos_info_batch(&repo_full_names, if token.is_empty() { None } else { Some(&token) }).await)
@@ -229,6 +289,7 @@ fn get_config() -> AppConfig {
             api_key: String::new(),
             api_base: "https://api.openai.com/v1".to_string(),
             model: "gpt-4o-mini".to_string(),
+            use_immersive: false,
         },
         github: GithubConfig {
             token: String::new(),
@@ -283,6 +344,32 @@ fn import_skills(import_path: String) -> Result<Vec<commands::export::ExportedSk
     commands::export::import_skills(&import_path)
 }
 
+// ─── MCP Commands ─────────────────────────────────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+async fn mcp_test_connection(config: commands::mcp::McpConnectionConfig) -> Result<commands::mcp::McpTestResult, String> {
+    commands::mcp::mcp_test_connection(config).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn mcp_start_server(
+    app: tauri::AppHandle,
+    server_id: String,
+    config: commands::mcp::McpConnectionConfig,
+) -> Result<u32, String> {
+    commands::mcp::mcp_start_server(app, server_id, config).await
+}
+
+#[tauri::command]
+async fn mcp_stop_server(pid: u32) -> Result<(), String> {
+    commands::mcp::mcp_stop_server(pid).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn mcp_export_config(servers: Vec<serde_json::Value>, export_path: String) -> Result<(), String> {
+    commands::mcp::mcp_export_config(servers, export_path)
+}
+
 // ─── Update Commands ──────────────────────────────────────────────────────
 
 #[tauri::command(rename_all = "camelCase")]
@@ -309,6 +396,75 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                debug_server::start(handle).await;
+            });
+
+            // ─── Window icon: high-res source so the taskbar renders crisply ──
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/256x256.png")) {
+                    let _ = window.set_icon(icon);
+                }
+                set_taskbar_icon(&window);
+            }
+
+            // ─── System tray ────────────────────────────────────────────────
+            let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+            let _tray = TrayIconBuilder::new()
+                .icon(tray_icon)
+                .tooltip("TRAE Skill Manager")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Minimize to tray on close (main window only)
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             scan_local_skills,
             scan_project_skills,
@@ -339,10 +495,15 @@ fn main() {
             fetch_github_skill_md_root,
             fetch_github_repo_info,
             test_github_token,
+            get_github_rate_limit,
             fetch_github_repos_info_batch,
             check_for_updates,
             update_skill_streamed,
             rollback_skill,
+            mcp_test_connection,
+            mcp_start_server,
+            mcp_stop_server,
+            mcp_export_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

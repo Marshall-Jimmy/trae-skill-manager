@@ -7,6 +7,8 @@ export interface RemoteSkill {
   source: string;
   installs: number;
   description?: string;
+  /** GitHub repository description (if available). */
+  repoDescription?: string;
   url: string;
   installUrl: string;
   sourceType: string;
@@ -15,6 +17,8 @@ export interface RemoteSkill {
   stars?: number;
   tags?: string[];
   updatedAt?: number;
+  /** Repo license SPDX id (e.g. "MIT"). */
+  license?: string;
 }
 
 // ─── Skill Categories ────────────────────────────────────────────────────
@@ -55,7 +59,7 @@ export type ViewMode = 'grid' | 'list';
 
 // ─── Discover Tab ────────────────────────────────────────────────────────
 
-export type DiscoverTab = 'all' | 'trending' | 'popular' | 'favorites';
+export type DiscoverTab = 'all' | 'trending' | 'recent' | 'favorites';
 
 // ─── Local Skill (scanned from disk) ──────────────────────────────────────
 
@@ -173,6 +177,7 @@ export interface TranslationConfig {
   apiKey: string;
   apiBase: string;
   model: string;
+  useImmersive: boolean;
 }
 
 // ─── GitHub Config ────────────────────────────────────────────────────────
@@ -360,4 +365,34 @@ export interface McpCategory {
   name: string;
   icon: string;
   description: string;
+}
+
+// ─── MCP Connection Test ──────────────────────────────────────────────────
+
+export interface McpConnectionConfig {
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  cwd?: string;
+  configType: McpConfigType;
+  url?: string;
+}
+
+export interface McpTestResult {
+  success: boolean;
+  message: string;
+  durationMs: number;
+  stderr?: string | null;
+  hint?: string | null;
+}
+
+export interface McpLogEvent {
+  stream: 'stdout' | 'stderr';
+  data: string;
+}
+
+export interface McpExitEvent {
+  pid: number;
+  code?: number | null;
 }

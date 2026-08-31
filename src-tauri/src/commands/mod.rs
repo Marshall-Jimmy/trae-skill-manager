@@ -3,6 +3,7 @@ pub mod export;
 pub mod fetch;
 pub mod history;
 pub mod install;
+pub mod mcp;
 pub mod remove;
 pub mod scan;
 pub mod search_github;

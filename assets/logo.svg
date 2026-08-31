@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Background: sharp-corner dark square -->
+  <rect width="1024" height="1024" fill="#0a0a0f"/>
+  <!-- Green geometric frame -->
+  <rect x="56" y="56" width="912" height="912" fill="none" stroke="#00ff88" stroke-width="72"/>
+
+  <!-- Geometric T: bold bars -->
+  <rect x="180" y="220" width="300" height="180" fill="#00ff88"/>
+  <rect x="320" y="220" width="180" height="580" fill="#00ff88"/>
+
+  <!-- Geometric S: blocky, alternating verticals (reads as S at small sizes) -->
+  <rect x="580" y="220" width="280" height="80" fill="#00ff88"/>
+  <rect x="580" y="220" width="84" height="250" fill="#00ff88"/>
+  <rect x="580" y="470" width="280" height="80" fill="#00ff88"/>
+  <rect x="776" y="470" width="84" height="250" fill="#00ff88"/>
+  <rect x="580" y="720" width="280" height="80" fill="#00ff88"/>
+</svg>

@@ -1,19 +1,58 @@
-import { useState, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar, type TabId } from './components/Sidebar';
-import { DiscoverPage } from './components/DiscoverPage';
-import { InstalledPage } from './components/InstalledPage';
-import { McpPage } from './components/McpPage';
-import { HistoryPage } from './components/HistoryPage';
-import { SettingsPage } from './components/SettingsPage';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { useSkillStore } from './store/skillStore';
 import { useMcpStore } from './store/mcpStore';
+import { useMotionConfig } from './lib/motionConfig';
 import { windowEntry } from './lib/animations';
 
+// Route-level code splitting: each page loads on first visit, shrinking the
+// initial bundle so cold start reaches interactive faster.
+const DiscoverPage = lazy(() => import('./components/DiscoverPage').then((m) => ({ default: m.DiscoverPage })));
+const InstalledPage = lazy(() => import('./components/InstalledPage').then((m) => ({ default: m.InstalledPage })));
+const McpPage = lazy(() => import('./components/McpPage').then((m) => ({ default: m.McpPage })));
+const HistoryPage = lazy(() => import('./components/HistoryPage').then((m) => ({ default: m.HistoryPage })));
+const SettingsPage = lazy(() => import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+
+const SESSION_KEY = 'trae-skill-manager-session';
+const VALID_TABS: TabId[] = ['discover', 'installed', 'mcp', 'history', 'settings'];
+
+function loadActiveTab(): TabId {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (VALID_TABS.includes(saved.activeTab)) return saved.activeTab;
+    }
+  } catch {
+    // ignore
+  }
+  return 'discover';
+}
+
+function PageFallback() {
+  return (
+    <div className="h-full flex items-center justify-center text-sm text-trae-text-secondary">
+      加载中...
+    </div>
+  );
+}
+
 function App() {
-  const [activeTab, setActiveTab] = useState<TabId>('discover');
+  const [activeTab, setActiveTab] = useState<TabId>(loadActiveTab);
   const [showCustomInstall, setShowCustomInstall] = useState(false);
+  const { getTransition } = useMotionConfig();
+  const pageTransition = getTransition('medium');
+
+  // Persist the active page so the app reopens on the same tab.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ activeTab }));
+    } catch {
+      // ignore
+    }
+  }, [activeTab]);
 
   const handleCustomInstall = useCallback(() => {
     setShowCustomInstall(true);
@@ -171,7 +210,7 @@ function App() {
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 24, delay: 0.1 }}
-          className="flex items-center justify-between px-6 py-3 border-b border-trae-border bg-trae-bg/80 backdrop-blur-sm shrink-0 z-10"
+          className="flex items-center justify-between px-6 py-3 border-b border-trae-border bg-trae-bg/80 backdrop-blur-sm shrink-0 z-10 shadow-hard-sm"
         >
           <ProjectSwitcher />
           <div className="flex items-center gap-2">
@@ -188,13 +227,15 @@ function App() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 25 }}
+              transition={pageTransition}
               className="h-full"
             >
-              <DiscoverPage
-                showCustomInstall={showCustomInstall}
-                onCustomInstallClose={handleCloseCustomInstall}
-              />
+              <Suspense fallback={<PageFallback />}>
+                <DiscoverPage
+                  showCustomInstall={showCustomInstall}
+                  onCustomInstallClose={handleCloseCustomInstall}
+                />
+              </Suspense>
             </motion.div>
           )}
           {activeTab === 'installed' && (
@@ -203,10 +244,12 @@ function App() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 25 }}
+              transition={pageTransition}
               className="h-full"
             >
-              <InstalledPage />
+              <Suspense fallback={<PageFallback />}>
+                <InstalledPage />
+              </Suspense>
             </motion.div>
           )}
           {activeTab === 'mcp' && (
@@ -215,10 +258,12 @@ function App() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 25 }}
+              transition={pageTransition}
               className="h-full"
             >
-              <McpPage />
+              <Suspense fallback={<PageFallback />}>
+                <McpPage />
+              </Suspense>
             </motion.div>
           )}
           {activeTab === 'history' && (
@@ -227,10 +272,12 @@ function App() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 25 }}
+              transition={pageTransition}
               className="h-full"
             >
-              <HistoryPage />
+              <Suspense fallback={<PageFallback />}>
+                <HistoryPage />
+              </Suspense>
             </motion.div>
           )}
           {activeTab === 'settings' && (
@@ -239,10 +286,12 @@ function App() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 25 }}
+              transition={pageTransition}
               className="h-full"
             >
-              <SettingsPage />
+              <Suspense fallback={<PageFallback />}>
+                <SettingsPage />
+              </Suspense>
             </motion.div>
           )}
         </AnimatePresence>

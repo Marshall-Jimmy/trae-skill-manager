@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { invoke } from '@tauri-apps/api/core';
 import {
   Plus,
   Search,
@@ -16,6 +17,8 @@ import {
   Palette,
   Sparkles,
   TrendingUp,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { useMcpStore } from '../store/mcpStore';
 import { mcpCategories, getMcpServersByCategory, searchMcpServers } from '../lib/mcpMarketplace';
@@ -44,6 +47,7 @@ export function McpPage() {
     stopServer,
     restartServer,
     removeServer,
+    addServer,
     openConfigDialog,
     configDialogOpen,
     closeConfigDialog,
@@ -138,6 +142,67 @@ export function McpPage() {
     showToast('success', '已刷新');
   };
 
+  const handleExport = async () => {
+    if (servers.length === 0) {
+      showToast('error', '没有可导出的 MCP Server');
+      return;
+    }
+    try {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const path = await save({
+        title: '导出 MCP 配置',
+        defaultPath: `mcp-config_${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!path) return;
+      await invoke('mcp_export_config', { servers, exportPath: path });
+      showToast('success', `已导出 ${servers.length} 个 MCP Server`);
+    } catch (e) {
+      showToast('error', `导出失败: ${String(e)}`);
+    }
+  };
+
+  const handleImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target?.result as string);
+          const imported = Array.isArray(data.servers) ? data.servers : [];
+          let count = 0;
+          for (const s of imported) {
+            if (s && s.name && s.command) {
+              addServer({
+                name: s.name,
+                description: s.description || '',
+                icon: s.icon || 'plug',
+                category: s.category || 'other',
+                command: s.command,
+                args: Array.isArray(s.args) ? s.args : [],
+                env: s.env && typeof s.env === 'object' ? s.env : {},
+                cwd: s.cwd || undefined,
+                configType: s.configType === 'sse' ? 'sse' : 'stdio',
+                url: s.url || undefined,
+                source: s.source === 'marketplace' ? 'marketplace' : 'user',
+              });
+              count++;
+            }
+          }
+          showToast(count > 0 ? 'success' : 'error', count > 0 ? `已导入 ${count} 个 MCP Server` : '导入文件中没有有效的 MCP Server');
+        } catch (err) {
+          showToast('error', `导入失败: ${String(err)}`);
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
   // Top trending servers for "热门推荐"
   const trendingServers = useMemo(() => {
     return filteredMarketplaceServers.slice(0, 6);
@@ -179,6 +244,26 @@ export function McpPage() {
               </div>
               <div className="flex items-center gap-2">
                 <motion.button
+                  onClick={handleExport}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  title="导出 MCP 配置"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-trae-text-secondary hover:text-trae-text hover:bg-trae-card/40 transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  导出
+                </motion.button>
+                <motion.button
+                  onClick={handleImport}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  title="导入 MCP 配置"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-trae-text-secondary hover:text-trae-text hover:bg-trae-card/40 transition-all"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  导入
+                </motion.button>
+                <motion.button
                   onClick={handleRefresh}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
@@ -191,7 +276,7 @@ export function McpPage() {
                   onClick={handleAddCustom}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-trae-accent/15 text-trae-accent hover:bg-trae-accent/25 transition-all border border-trae-accent/20"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-trae-accent/15 text-trae-accent hover:bg-trae-accent/25 transition-all border border-trae-accent/20 shadow-hard-sm"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   添加 MCP Server
@@ -201,7 +286,7 @@ export function McpPage() {
 
             {/* Configured servers list */}
             {servers.length === 0 ? (
-              <div className="bg-trae-card/20 border border-dashed border-trae-border rounded-xl p-10 text-center">
+              <div className="bg-trae-card/20 border border-dashed border-trae-border rounded-xl p-10 text-center shadow-hard-sm">
                 <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-trae-accent/10 border border-trae-accent/20 flex items-center justify-center">
                   <Server className="w-8 h-8 text-trae-accent" />
                 </div>
@@ -331,7 +416,7 @@ export function McpPage() {
                 <h3 className="text-sm font-medium text-trae-text mb-3">全部 Server</h3>
               )}
               {filteredMarketplaceServers.length === 0 ? (
-                <div className="bg-trae-card/20 border border-dashed border-trae-border rounded-xl p-8 text-center">
+                <div className="bg-trae-card/20 border border-dashed border-trae-border rounded-xl p-8 text-center shadow-hard-sm">
                   <Search className="w-10 h-10 mx-auto mb-3 text-trae-text-secondary/50" />
                   <p className="text-sm text-trae-text-secondary">
                     没有找到匹配的 MCP Server
@@ -356,7 +441,7 @@ export function McpPage() {
             </div>
 
             {/* Footer info */}
-            <div className="mt-8 p-4 bg-trae-card/20 border border-trae-border rounded-xl">
+            <div className="mt-8 p-4 bg-trae-card/20 border border-trae-border rounded-xl shadow-hard-sm">
               <h4 className="text-sm font-medium text-trae-text mb-2 flex items-center gap-2">
                 <Server className="w-4 h-4 text-trae-accent" />
                 关于 MCP (Model Context Protocol)
@@ -385,7 +470,7 @@ export function McpPage() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ type: 'spring', mass: 1, stiffness: 250, damping: 22 }}
-            className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium shadow-lg z-50 ${
+            className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium shadow-hard z-50 ${
               toast.type === 'success'
                 ? 'bg-trae-success/20 text-trae-success border border-trae-success/30'
                 : 'bg-trae-danger/20 text-trae-danger border border-trae-danger/30'

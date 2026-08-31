@@ -4,6 +4,7 @@ use tokio::process::Command;
 use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
+use urlencoding;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -17,6 +18,27 @@ fn hidden_command(program: &str) -> Command {
     cmd
 }
 
+/// Strip ANSI escape sequences (e.g. `\x1b[38;5;145m`) from CLI output.
+fn strip_ansi(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 const GITHUB_API_BASE: &str = "https://api.github.com/repos";
 const GITHUB_RAW_BASE: &str = "https://raw.githubusercontent.com";
 const USER_AGENT: &str = "TRAE-Skill-Manager/1.0.0";
@@ -27,14 +49,22 @@ const KNOWN_REPOS: &[&str] = &[
     "vercel-labs/agent-skills",    // Vercel 官方：React/Next.js 最佳实践
     "google/skills",               // Google 官方：BigQuery/GKE/Firebase 等
     "supabase/agent-skills",        // Supabase 官方：Postgres 最佳实践
+    "microsoft/skills",            // Microsoft 官方：Foundry/Azure 技能
+    "aws/agent-toolkit-for-aws",   // AWS 官方：Agent Toolkit 技能
     // ── 社区 Skill 仓库 ────────────────────────────────────────────
     "obra/superpowers",             // 结构化 debug/TDD/项目规划 meta-skill
     "ComposioHQ/awesome-claude-skills", // 30+ 实用 skill（changelog/mcp-builder 等）
     "czlonkowski/n8n-skills",       // n8n 工作流构建 skill
     "K-Dense-AI/scientific-agent-skills", // 135 个科研领域 skill
+    "mattpocock/skills",            // 工程技能包（AI coding agents）
+    "addyosmani/agent-skills",      // 生产级工程技能包
+    "smyrick/skills",               // AI agent 工作流技能库
 ];
 
-const CACHE_DURATION_SECS: u64 = 300; // 5 minutes
+// 6 hours: skills/repo metadata changes slowly, and each cache miss fires up to
+// 8 unauthenticated GitHub API calls (60/hr limit), so a short TTL burns the
+// quota in a few homepage loads.
+const CACHE_DURATION_SECS: u64 = 6 * 60 * 60;
 
 fn build_client(token: Option<&str>) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
@@ -173,6 +203,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "vercel-labs/skills/github".to_string(),
@@ -186,6 +219,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "vercel-labs/skills/linear".to_string(),
@@ -199,6 +235,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/web-search".to_string(),
@@ -212,6 +251,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/github".to_string(),
@@ -225,6 +267,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/linear".to_string(),
@@ -238,6 +283,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/notion".to_string(),
@@ -251,6 +299,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/slack".to_string(),
@@ -264,6 +315,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/jira".to_string(),
@@ -277,6 +331,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/stripe".to_string(),
@@ -290,6 +347,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/aws".to_string(),
@@ -303,6 +363,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/postgres".to_string(),
@@ -316,6 +379,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/redis".to_string(),
@@ -329,6 +395,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/docker".to_string(),
@@ -342,6 +411,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/kubernetes".to_string(),
@@ -355,6 +427,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/terraform".to_string(),
@@ -368,6 +443,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "anthropics/skills/cloudflare".to_string(),
@@ -381,6 +459,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "modelcontextprotocol/servers/filesystem".to_string(),
@@ -394,6 +475,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "modelcontextprotocol/servers/github".to_string(),
@@ -407,6 +491,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "modelcontextprotocol/servers/postgres".to_string(),
@@ -420,6 +507,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "modelcontextprotocol/servers/slack".to_string(),
@@ -433,6 +523,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "modelcontextprotocol/servers/google-drive".to_string(),
@@ -446,6 +539,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "modelcontextprotocol/servers/puppeteer".to_string(),
@@ -459,6 +555,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "modelcontextprotocol/servers/sentry".to_string(),
@@ -472,6 +571,9 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
         RemoteSkill {
             id: "microsoft/playwright-mcp".to_string(),
@@ -485,11 +587,14 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
             is_duplicate: false,
             data_source: "fallback".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         },
     ]
 }
 
-// ─── Main fetch: combine GitHub Raw + GitHub API + npx skills search + built-in ─
+// ─── Main fetch: combine GitHub Raw + GitHub API + skills.sh API + built-in ─
 
 pub async fn fetch_skills(
     view: Option<String>,
@@ -506,18 +611,6 @@ pub async fn fetch_skills(
 
         // Run all sources in parallel for maximum coverage and speed
         // Each source has its own timeout via the HTTP client
-        let token_for_raw = token_owned.clone();
-        let raw_fut = async move {
-            let mut skills = Vec::new();
-            for repo in KNOWN_REPOS {
-                match fetch_repo_skills_raw(repo, token_for_raw.as_deref()).await {
-                    Ok(s) => skills.extend(s),
-                    Err(e) => eprintln!("Warning: raw fetch failed for {}: {}", repo, e),
-                }
-            }
-            skills
-        };
-
         let token_for_api = token_owned.clone();
         let api_fut = async move {
             let mut skills = Vec::new();
@@ -531,10 +624,10 @@ pub async fn fetch_skills(
         };
 
         let npx_fut = async {
-            match fetch_skills_via_npx().await {
+            match fetch_skills_via_skills_sh().await {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("Warning: npx skills search failed: {}", e);
+                    eprintln!("Warning: skills.sh fetch failed: {}", e);
                     Vec::new()
                 }
             }
@@ -542,18 +635,9 @@ pub async fn fetch_skills(
 
         // Run all sources in parallel with an overall timeout of 15 seconds.
         // Use individual futures so a timeout still preserves partial results.
-        let raw_handle = tokio::spawn(raw_fut);
         let api_handle = tokio::spawn(api_fut);
         let npx_handle = tokio::spawn(npx_fut);
 
-        let raw_results = match tokio::time::timeout(
-            std::time::Duration::from_secs(15),
-            raw_handle
-        ).await {
-            Ok(Ok(results)) => results,
-            Ok(Err(e)) => { eprintln!("Warning: raw fetch task failed: {}", e); Vec::new() }
-            Err(_) => { eprintln!("Warning: raw fetch timeout"); Vec::new() }
-        };
         let api_results = match tokio::time::timeout(
             std::time::Duration::from_secs(15),
             api_handle
@@ -573,7 +657,7 @@ pub async fn fetch_skills(
 
         // Merge all results with deduplication by id
         let mut seen = std::collections::HashSet::new();
-        for skill in raw_results.into_iter().chain(api_results).chain(npx_results) {
+        for skill in api_results.into_iter().chain(npx_results) {
             if seen.insert(skill.id.clone()) {
                 merged.push(skill);
             }
@@ -589,6 +673,10 @@ pub async fn fetch_skills(
 
         merged
     };
+
+    // Enrich skills with their GitHub repo descriptions (cached, limited to
+    // the most popular repos to stay within API rate limits).
+    enrich_repo_descriptions(&mut all_skills, token_owned.as_deref()).await;
 
     // Sort differently based on view (always applied, even on cached data)
     match view.as_deref() {
@@ -625,50 +713,67 @@ pub async fn fetch_skills(
     })
 }
 
-// ─── GitHub Raw fetch (no rate limit) ─────────────────────────────────────
+/// Attach each skill's GitHub repository description (if known) so the card
+/// can show a short one-line intro. Uses the cached repo-info store and only
+/// fetches the most popular repos to respect API rate limits.
+async fn enrich_repo_descriptions(skills: &mut Vec<RemoteSkill>, token: Option<&str>) {
+    let mut source_installs: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    for s in skills.iter() {
+        if is_github_source(&s.source) {
+            *source_installs.entry(s.source.clone()).or_insert(0) += s.installs;
+        }
+    }
+    let mut sources: Vec<String> = source_installs.keys().cloned().collect();
+    sources.sort_by(|a, b| source_installs[b].cmp(&source_installs[a]));
+    sources.truncate(20);
 
-async fn fetch_repo_skills_raw(repo: &str, token: Option<&str>) -> Result<Vec<RemoteSkill>, String> {
-    // Try to fetch directory listing via raw GitHub
-    // GitHub raw doesn't provide directory listings, so we try common skill names
-    let client = build_client(token);
-    let mut skills = Vec::new();
-
-    // Common skill names to check
-    let common_skills = [
-        "web-search", "github", "linear", "notion", "slack", "jira", "stripe",
-        "aws", "postgres", "redis", "docker", "kubernetes", "terraform",
-        "cloudflare", "filesystem", "google-drive", "puppeteer", "sentry",
-        "playwright-mcp", "agent-skills",
-    ];
-
-    for skill_name in &common_skills {
-        let url = format!("{}/{}/main/{}/SKILL.md", GITHUB_RAW_BASE, repo, skill_name);
-        let resp = client.head(&url).send().await;
-        if let Ok(r) = resp {
-            if r.status().is_success() {
-                skills.push(RemoteSkill {
-                    id: format!("{}/{}", repo, skill_name),
-                    slug: skill_name.to_string(),
-                    name: skill_name.to_string(),
-                    source: repo.to_string(),
-                    installs: 0,
-                    source_type: "github".to_string(),
-                    install_url: format!("https://github.com/{}", repo),
-                    url: format!("https://github.com/{}/tree/main/{}", repo, skill_name),
-                    is_duplicate: false,
-                    data_source: "github-raw".to_string(),
-                    stars: None,
-                });
+    let infos = fetch_github_repos_info_batch(&sources, token).await;
+    for s in skills.iter_mut() {
+        if let Some(info) = infos.get(&normalize_github_source(&s.source)) {
+            if let Some(desc) = &info.description {
+                if !desc.trim().is_empty() {
+                    s.repo_description = Some(desc.clone());
+                }
+            }
+            if let Some(lic) = &info.license {
+                if let Some(spdx) = &lic.spdx_id {
+                    if !spdx.trim().is_empty() {
+                        s.license = Some(spdx.clone());
+                    }
+                }
+            }
+            if s.updated_at.is_none() {
+                s.updated_at = iso_to_unix_ms(&info.updated_at);
             }
         }
     }
-
-    if skills.is_empty() {
-        return Err("No skills found via raw GitHub".to_string());
-    }
-
-    Ok(skills)
 }
+
+/// Parse a GitHub ISO-8601 timestamp (e.g. `2026-08-31T08:29:03Z`) to unix ms.
+/// Uses fixed byte positions (`YYYY-MM-DDTHH:MM:SS`) so it never panics on
+/// malformed or shorter strings.
+fn iso_to_unix_ms(iso: &str) -> Option<i64> {
+    let t = iso.trim().as_bytes();
+    if t.len() < 19 {
+        return None;
+    }
+    let num = |r: std::ops::Range<usize>| -> Option<i64> {
+        std::str::from_utf8(&t[r]).ok()?.trim().parse::<i64>().ok()
+    };
+    let (y, mo, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (h, m, s) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    // Days from civil (days since 1970-01-01), Howard Hinnant's algorithm.
+    let y = if mo <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (mo + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    Some((days * 86400 + h * 3600 + m * 60 + s) * 1000)
+}
+
+// ─── GitHub README / SKILL.md content ─────────────────────────────────────
 
 /// Fetch a GitHub repo's README or SKILL.md content for community skill preview.
 pub async fn fetch_github_repo_readme(repo_full_name: &str, token: Option<&str>) -> Result<String, String> {
@@ -823,6 +928,9 @@ async fn fetch_repo_skills_api(repo: &str, token: Option<&str>) -> Result<Vec<Re
             is_duplicate: false,
             data_source: "github-api".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         });
     }
 
@@ -870,98 +978,121 @@ async fn fetch_repo_skills_from_root_api(repo: &str, token: Option<&str>) -> Res
             is_duplicate: false,
             data_source: "github-api".to_string(),
             stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
         });
     }
 
     Ok(skills)
 }
 
-// ─── npx skills search fallback ───────────────────────────────────────────
+// ─── skills.sh search API fallback ────────────────────────────────────────
+// The skills CLI has no `search` subcommand (only `find`, which requires a
+// query and caps results at 6). We call the same skills.sh search API the CLI
+// wraps, using several broad queries for ecosystem coverage. This avoids
+// spawning npx entirely and returns structured JSON.
+//
+// Note: the bare `skills.sh` host hangs on GET (returns 200 for HEAD but
+// stalls on GET); the `www.` host responds normally, so we use it here.
 
-async fn fetch_skills_via_npx() -> Result<Vec<RemoteSkill>, String> {
-    let output = hidden_command("npx")
-        .args(["skills", "search", "--limit", "50"])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute npx skills search: {}", e))?;
+const SKILLS_SH_API: &str = "https://www.skills.sh/api/search";
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if !output.status.success() {
-        return Err(format!(
-            "npx skills search failed: {}",
-            if stderr.is_empty() { stdout } else { stderr }
-        ));
-    }
-
-    parse_npx_search_output(&stdout)
+/// A GitHub source is `owner/repo` where the owner is not a domain (e.g.
+/// `skills.volces.com/...` is not a GitHub repo and would produce a broken
+/// install URL).
+fn is_github_source(source: &str) -> bool {
+    let parts: Vec<&str> = source.split('/').collect();
+    parts.len() == 2
+        && !parts[0].is_empty()
+        && !parts[0].contains('.')
+        && !parts[1].is_empty()
 }
 
-fn parse_npx_search_output(output: &str) -> Result<Vec<RemoteSkill>, String> {
+/// Query the skills.sh search API for a single keyword and map results to
+/// RemoteSkill (github sources only).
+pub(crate) async fn search_skills_via_skills_sh(client: &reqwest::Client, query: &str) -> Vec<RemoteSkill> {
+    let url = format!("{}?q={}&limit=50", SKILLS_SH_API, urlencoding::encode(query));
+    let resp = match client.get(&url).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Vec::new(),
+    };
+    let data: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let items = match data.get("skills").and_then(|s| s.as_array()) {
+        Some(items) => items,
+        None => return Vec::new(),
+    };
     let mut skills = Vec::new();
-
-    for line in output.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty()
-            || trimmed.starts_with("Searching")
-            || trimmed.starts_with("──")
-            || trimmed.starts_with("---")
-            || trimmed.starts_with("No skills")
-            || trimmed.starts_with("Usage:")
-            || trimmed.starts_with("Found")
-        {
+    for item in items {
+        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let source = item.get("source").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let installs = item.get("installs").and_then(|v| v.as_u64()).unwrap_or(0);
+        if id.is_empty() || !is_github_source(&source) {
             continue;
         }
+        skills.push(RemoteSkill {
+            id: id.clone(),
+            slug: name.clone(),
+            name: name.clone(),
+            source: source.clone(),
+            installs,
+            source_type: "github".to_string(),
+            install_url: format!("https://github.com/{}", source),
+            url: format!("https://skills.sh/{}", id),
+            is_duplicate: false,
+            data_source: "skills-sh".to_string(),
+            stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
+        });
+    }
+    skills
+}
 
-        // Parse lines like: "owner/repo/skill-name  Description here"
-        let parts: Vec<&str> = if trimmed.contains('\t') {
-            trimmed.splitn(2, '\t').collect()
-        } else {
-            let mut split_pos = None;
-            let chars: Vec<char> = trimmed.chars().collect();
-            for i in 0..chars.len().saturating_sub(1) {
-                if chars[i] == ' ' && chars[i + 1] == ' ' {
-                    split_pos = Some(i);
-                    break;
+async fn fetch_skills_via_skills_sh() -> Result<Vec<RemoteSkill>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build client: {}", e))?;
+
+    // Broad queries for ecosystem coverage plus specific popular skill names
+    // so the homepage surfaces well-known skills with real install counts.
+    let queries = [
+        "ai", "web", "data", "code", "agent", "git", "cloud", "pdf", "doc", "video",
+        "react", "python", "postgres", "docker", "kubernetes", "notion", "slack",
+        "github", "linear", "figma", "excel", "word", "chrome", "supabase", "aws",
+    ];
+
+    // Run all queries in parallel: skills.sh can take ~5s per query, so a
+    // serial loop would blow the 15s overall budget in fetch_skills.
+    let mut handles = Vec::new();
+    for query in queries {
+        let client = client.clone();
+        handles.push(tokio::spawn(async move {
+            search_skills_via_skills_sh(&client, query).await
+        }));
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    let mut skills = Vec::new();
+    for handle in handles {
+        if let Ok(result) = handle.await {
+            for skill in result {
+                if seen.insert(skill.id.clone()) {
+                    skills.push(skill);
                 }
             }
-            match split_pos {
-                Some(pos) => {
-                    let (a, b) = trimmed.split_at(pos);
-                    vec![a.trim(), b.trim()]
-                }
-                None => vec![trimmed],
-            }
-        };
-
-        let id_part = parts[0].trim();
-        let _description = parts.get(1).map(|s| s.trim().to_string());
-
-        // Parse "owner/repo/skill-name" or "owner/repo"
-        let segments: Vec<&str> = id_part.split('/').collect();
-        if segments.len() >= 2 {
-            let source = format!("{}/{}", segments[0], segments[1]);
-            let slug = if segments.len() >= 3 {
-                segments[2..].join("/")
-            } else {
-                segments[1].to_string()
-            };
-
-            skills.push(RemoteSkill {
-                id: id_part.to_string(),
-                slug: slug.clone(),
-                name: slug.clone(),
-                source,
-                installs: 0,
-                source_type: "github".to_string(),
-                install_url: format!("https://github.com/{}", id_part),
-                url: format!("https://github.com/{}", id_part),
-                is_duplicate: false,
-                data_source: "npx".to_string(),
-                stars: None,
-            });
         }
+    }
+
+    if skills.is_empty() {
+        return Err("No skills found via skills.sh API".to_string());
     }
 
     Ok(skills)
@@ -969,26 +1100,184 @@ fn parse_npx_search_output(output: &str) -> Result<Vec<RemoteSkill>, String> {
 
 // ─── Search ───────────────────────────────────────────────────────────────
 
+/// Expand a query into alias terms so related formats surface together
+/// (e.g. searching "pdf" also matches docx/pptx/xlsx skills).
+fn expand_query_aliases(query: &str) -> Vec<String> {
+    let q = query.trim().to_lowercase();
+    let mut terms = vec![q.clone()];
+    let family: &[&str] = match q.as_str() {
+        "pdf" | "doc" | "docx" | "word" | "document" => {
+            &["pdf", "doc", "docx", "word", "document"]
+        }
+        "xlsx" | "excel" | "sheet" | "spreadsheet" | "csv" | "表格" => {
+            &["xlsx", "excel", "sheet", "spreadsheet", "csv"]
+        }
+        "ppt" | "pptx" | "slide" | "slides" | "presentation" | "演示" => {
+            &["ppt", "pptx", "slide", "slides", "presentation"]
+        }
+        "email" | "mail" | "gmail" | "outlook" | "邮件" => {
+            &["email", "mail", "gmail", "outlook"]
+        }
+        "translate" | "translation" | "i18n" | "翻译" => {
+            &["translate", "translation", "i18n", "language"]
+        }
+        "database" | "db" | "sql" | "postgres" | "mysql" | "数据库" => {
+            &["database", "db", "sql", "postgres", "mysql", "query"]
+        }
+        "git" | "github" | "repo" | "repository" | "版本" => {
+            &["git", "github", "repo", "repository"]
+        }
+        "terminal" | "shell" | "cli" | "command" | "bash" | "终端" => {
+            &["terminal", "shell", "cli", "command", "bash", "zsh"]
+        }
+        "search" | "web-search" | "websearch" | "browser" | "搜索" => {
+            &["search", "web-search", "websearch", "browser", "web"]
+        }
+        "video" | "audio" | "media" | "music" | "sound" => {
+            &["video", "audio", "media", "music", "sound"]
+        }
+        "image" | "photo" | "picture" | "img" | "图片" => {
+            &["image", "photo", "picture", "img", "canvas"]
+        }
+        "note" | "notes" | "notion" | "笔记" => {
+            &["note", "notes", "notion", "writing"]
+        }
+        "calendar" | "meeting" | "schedule" | "日程" | "会议" => {
+            &["calendar", "meeting", "schedule"]
+        }
+        "code" | "coding" | "programming" | "script" | "开发" => {
+            &["code", "coding", "programming", "script"]
+        }
+        "test" | "testing" | "qa" | "测试" => {
+            &["test", "testing", "qa", "debug"]
+        }
+        "deploy" | "deployment" | "devops" | "ci" | "cd" | "部署" => {
+            &["deploy", "deployment", "devops", "ci", "cd"]
+        }
+        _ => &[],
+    };
+    for t in family {
+        if !terms.contains(&t.to_string()) {
+            terms.push(t.to_string());
+        }
+    }
+    terms
+}
+
+/// Relevance score: name match dominates, then source, then repo description.
+fn relevance_score(skill: &RemoteSkill, terms: &[String]) -> i64 {
+    let name = skill.name.to_lowercase();
+    let source = skill.source.to_lowercase();
+    let desc = skill
+        .repo_description
+        .as_deref()
+        .unwrap_or("")
+        .to_lowercase();
+    let mut score = 0i64;
+    for term in terms {
+        if name == *term {
+            score += 100;
+        } else if name.starts_with(term.as_str()) {
+            score += 60;
+        } else if name.contains(term.as_str()) {
+            score += 40;
+        }
+        if source == *term {
+            score += 30;
+        } else if source.contains(term.as_str()) {
+            score += 15;
+        }
+        if desc.contains(term.as_str()) {
+            score += 8;
+        }
+    }
+    score
+}
+
+/// Levenshtein distance for typo tolerance on short queries.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        curr[0] = i;
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
 pub async fn search_skills(
     query: &str,
     _limit: Option<u32>,
     token: Option<&str>,
 ) -> Result<ApiResponse<Vec<RemoteSkill>>, String> {
-    let all = fetch_skills(None, None, None, token).await?;
-    let q = query.to_lowercase();
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return fetch_skills(None, None, None, token).await;
+    }
 
-    let filtered: Vec<RemoteSkill> = all
-        .data
-        .into_iter()
-        .filter(|s| {
-            s.name.to_lowercase().contains(&q)
-                || s.source.to_lowercase().contains(&q)
-        })
-        .collect();
+    let terms = expand_query_aliases(&q);
 
-    let total = filtered.len() as u32;
+    // Primary: query skills.sh directly with the user's keyword. This surfaces
+    // popular skills with real install counts that the pre-fetched list may
+    // not contain (the root cause of "热门 skill 搜不出来").
+    let client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build client: {}", e))?;
+    let mut results = search_skills_via_skills_sh(&client, &q).await;
+
+    // Secondary: match against the pre-fetched merged list (KNOWN_REPOS +
+    // generic skills.sh queries + built-in fallback) using alias-aware
+    // relevance scoring instead of a plain substring check.
+    let mut seen: std::collections::HashSet<String> =
+        results.iter().map(|s| s.id.clone()).collect();
+    if let Ok(all) = fetch_skills(None, None, None, token).await {
+        for s in all.data {
+            if relevance_score(&s, &terms) > 0 {
+                if seen.insert(s.id.clone()) {
+                    results.push(s);
+                }
+            }
+        }
+    }
+
+    // Typo tolerance: for short queries (<= 4 chars), also include skills whose
+    // name is within edit distance 1 of the query (e.g. "pfd" → "pdf").
+    if q.chars().count() <= 4 {
+        let mut fuzzy_added = 0usize;
+        for s in results.clone() {
+            if fuzzy_added >= 5 {
+                break;
+            }
+            if seen.contains(&s.id) {
+                continue;
+            }
+            let name = s.name.to_lowercase();
+            if name.chars().count() <= 8 && levenshtein(&q, &name) <= 1 {
+                seen.insert(s.id.clone());
+                results.push(s);
+                fuzzy_added += 1;
+            }
+        }
+    }
+
+    // Rank by relevance first, then by installs (popularity) as a tie-breaker.
+    results.sort_by(|a, b| {
+        let ra = relevance_score(a, &terms);
+        let rb = relevance_score(b, &terms);
+        rb.cmp(&ra).then_with(|| b.installs.cmp(&a.installs)).then_with(|| a.name.cmp(&b.name))
+    });
+
+    let total = results.len() as u32;
     Ok(ApiResponse {
-        data: filtered,
+        data: results,
         pagination: Some(Pagination {
             page: 0,
             per_page: total,
@@ -1068,19 +1357,26 @@ pub async fn list_repo_skills(source: &str, token: Option<&str>) -> Result<Vec<R
 
     // Method 1: Use `npx skills add <source> --list` (most accurate, discovers real skills)
     match list_repo_skills_via_npx(&normalized).await {
-        Ok(skills) if !skills.is_empty() => return Ok(skills),
-        Ok(_) => { /* empty, try fallback */ }
+        Ok(skills) if !skills.is_empty() => {
+            eprintln!("[debug] npx --list OK for {}: {} skills", normalized, skills.len());
+            return Ok(skills);
+        }
+        Ok(skills) => {
+            eprintln!("[debug] npx --list EMPTY for {} ({} skills)", normalized, skills.len());
+        }
         Err(e) => eprintln!("Warning: npx --list failed for {}: {}", normalized, e),
     }
 
     // Method 2: Fallback to GitHub API + Raw scanning
-    list_repo_skills_via_github(&normalized, token).await
+    let fallback = list_repo_skills_via_github(&normalized, token).await;
+    eprintln!("[debug] github fallback for {}: {:?}", normalized, fallback.as_ref().map(|v| v.len()));
+    fallback
 }
 
 /// Use `npx skills add <source> --list` to discover real skills in a repo.
 async fn list_repo_skills_via_npx(source: &str) -> Result<Vec<RepoSkillInfo>, String> {
-    let output = hidden_command("npx")
-        .args(["skills", "add", source, "--list"])
+    let output = hidden_command(crate::utils::npx_program())
+        .args(["-y", "skills", "add", source, "--list"])
         .output()
         .await
         .map_err(|e| format!("Failed to execute npx: {}", e))?;
@@ -1106,7 +1402,7 @@ async fn list_repo_skills_via_npx(source: &str) -> Result<Vec<RepoSkillInfo>, St
     let mut current_desc_lines: Vec<String> = Vec::new();
 
     for line in stdout.lines() {
-        let trimmed = line.trim();
+        let trimmed = strip_ansi(line).trim().to_string();
 
         // Skip headers and noise
         if trimmed.is_empty()
@@ -1122,7 +1418,6 @@ async fn list_repo_skills_via_npx(source: &str) -> Result<Vec<RepoSkillInfo>, St
             || trimmed.starts_with("Found")
             || trimmed.contains("skills.sh")
             || trimmed.contains("████")
-            || trimmed.contains("│")
             || trimmed.contains("◇")
             || trimmed.contains("◒")
             || trimmed.contains("└")
@@ -1142,8 +1437,8 @@ async fn list_repo_skills_via_npx(source: &str) -> Result<Vec<RepoSkillInfo>, St
         }
 
         // Lines starting with │ are part of the box drawing
-        if line.contains("│") {
-            let content = line.split("│").last().unwrap_or("").trim();
+        if trimmed.contains("│") {
+            let content = trimmed.split("│").last().unwrap_or("").trim();
             if content.is_empty() {
                 continue;
             }
@@ -1315,15 +1610,7 @@ fn parse_repo_skills_output(output: &str) -> Result<Vec<RepoSkillInfo>, String> 
         let parts: Vec<&str> = if cleaned.contains('\t') {
             cleaned.splitn(2, '\t').collect()
         } else {
-            let mut split_pos = None;
-            let chars: Vec<char> = cleaned.chars().collect();
-            for i in 0..chars.len().saturating_sub(1) {
-                if chars[i] == ' ' && chars[i + 1] == ' ' {
-                    split_pos = Some(i);
-                    break;
-                }
-            }
-            match split_pos {
+            match cleaned.find("  ") {
                 Some(pos) => {
                     let (a, b) = cleaned.split_at(pos);
                     vec![a.trim(), b.trim()]
@@ -1508,6 +1795,40 @@ pub async fn test_github_token(token: &str) -> Result<(), String> {
     } else {
         Err(format!("验证失败 (状态码: {})", resp.status()))
     }
+}
+
+/// GitHub rate-limit status for the core API, used by the settings page to
+/// show the user their remaining quota and reset time.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GithubRateLimit {
+    pub limit: u64,
+    pub remaining: u64,
+    pub reset_unix: i64,
+    pub authenticated: bool,
+}
+
+pub async fn get_github_rate_limit(token: Option<&str>) -> Result<GithubRateLimit, String> {
+    let client = build_client(token);
+    let url = "https://api.github.com/rate_limit";
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("查询失败 (状态码: {})", resp.status()));
+    }
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析失败: {}", e))?;
+    let core = &data["resources"]["core"];
+    Ok(GithubRateLimit {
+        limit: core["limit"].as_u64().unwrap_or(0),
+        remaining: core["remaining"].as_u64().unwrap_or(0),
+        reset_unix: core["reset"].as_i64().unwrap_or(0),
+        authenticated: token.is_some_and(|t| !t.is_empty()),
+    })
 }
 
 /// Batch fetch repo info for multiple repos (used for enriching trending/hot lists).

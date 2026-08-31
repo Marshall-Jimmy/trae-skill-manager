@@ -19,6 +19,14 @@ pub struct RemoteSkill {
     #[serde(rename = "dataSource")]
     pub data_source: String,
     pub stars: Option<u64>,
+    #[serde(default, rename = "repoDescription")]
+    pub repo_description: Option<String>,
+    /// Last repo update time (unix ms), used for freshness / heat ranking.
+    #[serde(default, rename = "updatedAt")]
+    pub updated_at: Option<i64>,
+    /// Repo license SPDX id (e.g. "MIT"), from GitHub repo metadata.
+    #[serde(default)]
+    pub license: Option<String>,
 }
 
 // ─── Skill Detail (from detail API) ──────────────────────────────────────
@@ -182,6 +190,7 @@ pub struct GithubConfig {
 // ─── Translation Config ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TranslationConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -193,6 +202,8 @@ pub struct TranslationConfig {
     pub api_base: String,
     #[serde(default = "default_model")]
     pub model: String,
+    #[serde(default)]
+    pub use_immersive: bool,
 }
 
 fn default_target_language() -> String {
@@ -210,6 +221,7 @@ fn default_model() -> String {
 // ─── App Config ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub global_skills_path: String,
     pub project_path: String,

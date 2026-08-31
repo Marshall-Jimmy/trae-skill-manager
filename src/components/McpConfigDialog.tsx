@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { invoke } from '@tauri-apps/api/core';
 import {
   X,
   Plus,
@@ -14,7 +15,8 @@ import {
   Terminal,
 } from 'lucide-react';
 import { useMcpStore } from '../store/mcpStore';
-import type { McpServer, McpConfigType } from '../types';
+import { McpIcon, mcpIconNames } from '../lib/iconMap';
+import type { McpServer, McpConfigType, McpTestResult } from '../types';
 
 interface McpConfigDialogProps {
   open: boolean;
@@ -83,7 +85,7 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
       // New blank server
       setName('');
       setDescription('');
-      setIcon('🔌');
+      setIcon('plug');
       setCategory('dev-tools');
       setCommand('npx');
       setArgsText('');
@@ -109,6 +111,8 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
     }
     if (configType === 'sse' && !url.trim()) {
       newErrors.url = 'SSE 模式需要 URL';
+    } else if (configType === 'sse' && url.trim() && !/^https?:\/\//i.test(url.trim())) {
+      newErrors.url = 'URL 必须以 http:// 或 https:// 开头';
     }
 
     // Validate env var keys
@@ -196,19 +200,28 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
     setTestResult(null);
     setTestMessage('');
 
-    // TODO: Actual connection test via Tauri/Rust backend
-    // For MVP, simulate a test
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // Simulate: succeed if command looks valid, fail otherwise
-    const args = parseArgs();
-
-    if (command.trim() && args.length > 0) {
-      setTestResult('success');
-      setTestMessage('连接测试成功！MCP Server 响应正常。');
-    } else {
+    try {
+      const result = await invoke<McpTestResult>('mcp_test_connection', {
+        config: {
+          name: name.trim(),
+          command: command.trim(),
+          args: parseArgs(),
+          env: buildEnvObject(),
+          cwd: cwd.trim() || undefined,
+          configType,
+          url: url.trim() || undefined,
+        },
+      });
+      setTestResult(result.success ? 'success' : 'error');
+      setTestMessage(
+        result.hint || result.message || (result.success ? '连接测试成功' : '连接测试失败'),
+      );
+      if (!result.success && result.stderr) {
+        setTestMessage((prev) => `${prev}\n${result.stderr}`);
+      }
+    } catch (e) {
       setTestResult('error');
-      setTestMessage('测试失败：请检查命令和参数配置。');
+      setTestMessage(`测试失败: ${String(e)}`);
     }
 
     setTesting(false);
@@ -328,7 +341,7 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 24 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[560px] max-w-[90vw] max-h-[85vh] bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl overflow-hidden flex flex-col"
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[560px] max-w-[90vw] max-h-[85vh] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard-lg overflow-hidden flex flex-col"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-trae-border shrink-0">
@@ -355,40 +368,49 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
                   基本信息
                 </h4>
                 <div className="space-y-3 pl-3">
-                  {/* Name + Icon */}
-                  <div className="flex gap-3">
-                    <div className="w-12 shrink-0">
-                      <label className="block text-xs text-trae-text-secondary mb-1">图标</label>
-                      <input
-                        type="text"
-                        value={icon}
-                        onChange={(e) => setIcon(e.target.value)}
-                        placeholder="🔌"
-                        className="w-full px-3 py-2 bg-trae-bg border border-trae-border rounded-lg text-sm text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:border-trae-accent/40 focus:ring-1 focus:ring-trae-accent/30 transition-colors text-center"
-                        maxLength={4}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-xs text-trae-text-secondary mb-1">
-                        名称 <span className="text-trae-danger">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder="My MCP Server"
-                        className={`w-full px-3 py-2 bg-trae-bg border rounded-lg text-sm text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:ring-1 transition-colors ${
-                          errors.name
-                            ? 'border-trae-danger/50 focus:border-trae-danger focus:ring-trae-danger/30'
-                            : 'border-trae-border focus:border-trae-accent/40 focus:ring-trae-accent/30'
-                        }`}
-                      />
-                      {errors.name && (
-                        <p className="text-xs text-trae-danger mt-1 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3" />
-                          {errors.name}
-                        </p>
-                      )}
+                  {/* Name */}
+                  <div>
+                    <label className="block text-xs text-trae-text-secondary mb-1">
+                      名称 <span className="text-trae-danger">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="My MCP Server"
+                      className={`w-full px-3 py-2 bg-trae-bg border rounded-lg text-sm text-trae-text placeholder-trae-text-secondary/50 focus:outline-none focus:ring-1 transition-colors ${
+                        errors.name
+                          ? 'border-trae-danger/50 focus:border-trae-danger focus:ring-trae-danger/30'
+                          : 'border-trae-border focus:border-trae-accent/40 focus:ring-trae-accent/30'
+                      }`}
+                    />
+                    {errors.name && (
+                      <p className="text-xs text-trae-danger mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {errors.name}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Icon picker */}
+                  <div>
+                    <label className="block text-xs text-trae-text-secondary mb-1">图标</label>
+                    <div className="grid grid-cols-8 gap-1.5">
+                      {mcpIconNames.map((iconName) => (
+                        <button
+                          key={iconName}
+                          type="button"
+                          onClick={() => setIcon(iconName)}
+                          title={iconName}
+                          className={`w-8 h-8 flex items-center justify-center border transition-colors ${
+                            icon === iconName
+                              ? 'bg-trae-accent/20 border-trae-accent text-trae-accent'
+                              : 'bg-trae-bg border-trae-border text-trae-text-secondary hover:text-trae-text hover:border-trae-accent/40'
+                          }`}
+                        >
+                          <McpIcon name={iconName} className="w-4 h-4" />
+                        </button>
+                      ))}
                     </div>
                   </div>
 

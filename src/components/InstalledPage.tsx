@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useSkillStore } from '../store/skillStore';
 import { FileBrowser } from './FileBrowser';
 import { TerminalViewer } from './TerminalViewer';
+import { SkeletonList } from './SkeletonCard';
 import type { LocalSkill, FileEntry } from '../types';
 import {
   FolderOpen,
@@ -23,10 +24,35 @@ import {
   Globe,
   Folder,
   Layers,
+  Clock,
 } from 'lucide-react';
 
-type FilterTab = 'all' | 'enabled' | 'disabled' | 'updatable';
+type FilterTab = 'all' | 'enabled' | 'disabled' | 'updatable' | 'stale';
 type ScopeTab = 'current' | 'global' | 'project' | 'all';
+
+// A skill is "stale" when it was installed long ago but its update status
+// hasn't been checked recently, so it may be silently out of date.
+const STALE_DAYS = 30;
+const STALE_MS = STALE_DAYS * 24 * 60 * 60 * 1000;
+
+function isStaleSkill(skill: LocalSkill, hasUpdate: boolean): boolean {
+  if (hasUpdate) return false;
+  const installedAt = skill.installedAt;
+  if (!installedAt) return false;
+  const now = Date.now();
+  if (now - installedAt < STALE_MS) return false;
+  const lastChecked = skill.lastCheckedAt;
+  if (!lastChecked) return true;
+  return now - lastChecked > STALE_MS;
+}
+
+function formatAge(ts: number): string {
+  const days = Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000));
+  if (days < 1) return '今天安装';
+  if (days < STALE_DAYS) return `${days} 天前安装`;
+  const months = Math.floor(days / 30);
+  return `${months} 个月前安装`;
+}
 
 export function InstalledPage() {
   const {
@@ -128,7 +154,8 @@ export function InstalledPage() {
     const enabled = skills.filter((s) => s.enabled).length;
     const disabled = total - enabled;
     const updatable = skills.filter((s) => hasUpdate(s.path)).length;
-    return { total, enabled, disabled, updatable };
+    const stale = skills.filter((s) => isStaleSkill(s, hasUpdate(s.path))).length;
+    return { total, enabled, disabled, updatable, stale };
   }, [displaySkills, hasUpdate]);
 
   // Filtered skills
@@ -137,6 +164,7 @@ export function InstalledPage() {
     if (filter === 'enabled') return skills.filter((s) => s.enabled);
     if (filter === 'disabled') return skills.filter((s) => !s.enabled);
     if (filter === 'updatable') return skills.filter((s) => hasUpdate(s.path));
+    if (filter === 'stale') return skills.filter((s) => isStaleSkill(s, hasUpdate(s.path)));
     return skills;
   }, [displaySkills, filter, hasUpdate]);
 
@@ -282,12 +310,21 @@ export function InstalledPage() {
     { id: 'enabled', label: '已启用', count: stats.enabled },
     { id: 'disabled', label: '已禁用', count: stats.disabled },
     { id: 'updatable', label: '可更新', count: stats.updatable },
+    { id: 'stale', label: '可能过期', count: stats.stale },
   ];
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-trae-accent border-t-transparent rounded-full animate-spin" />
+      <div className="h-full flex flex-col p-6">
+        <div className="mb-4 space-y-3">
+          <div className="skeleton-block h-7 w-40" />
+          <div className="flex gap-4">
+            <div className="skeleton-block h-3 w-24" />
+            <div className="skeleton-block h-3 w-24" />
+            <div className="skeleton-block h-3 w-24" />
+          </div>
+        </div>
+        <SkeletonList count={6} viewMode="list" />
       </div>
     );
   }
@@ -330,6 +367,15 @@ export function InstalledPage() {
               </span>{' '}
               个
             </span>
+            {stats.stale > 0 && (
+              <span className="text-sm text-trae-text-secondary">
+                可能过期{' '}
+                <span className="text-orange-400 font-medium">
+                  {stats.stale}
+                </span>{' '}
+                个
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -419,10 +465,18 @@ export function InstalledPage() {
         <div className="flex-1 flex flex-col items-center justify-center text-trae-text-secondary">
           <FolderOpen className="w-12 h-12 mb-3 opacity-50" />
           <p className="text-sm">
-            {filter === 'updatable' ? '没有可更新的 Skill' : '还没有安装任何 Skill'}
+            {filter === 'updatable'
+              ? '没有可更新的 Skill'
+              : filter === 'stale'
+              ? '没有可能过期的 Skill'
+              : '还没有安装任何 Skill'}
           </p>
           <p className="text-xs mt-1">
-            {filter === 'updatable' ? '点击「检查更新」查看是否有新版本' : '去发现页搜索并安装你需要的 Skill'}
+            {filter === 'updatable'
+              ? '点击「检查更新」查看是否有新版本'
+              : filter === 'stale'
+              ? '安装超过 30 天且长期未检查更新的 Skill 会在此显示'
+              : '去发现页搜索并安装你需要的 Skill'}
           </p>
         </div>
       ) : (
@@ -431,12 +485,13 @@ export function InstalledPage() {
             const isExpanded = expandedSkill === skill.path;
             const isSelected = selectedSkills.has(skill.path);
             const skillHasUpdate = hasUpdate(skill.path);
+            const skillStale = isStaleSkill(skill, skillHasUpdate);
 
             return (
               <motion.div key={skill.path} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: Math.min(index * 0.03, 0.3) }}>
                 {/* Skill card */}
                 <div
-                  className={`bg-trae-card/30 border rounded-lg p-4 hover:bg-trae-card/50 transition-all ${
+                  className={`bg-trae-card/30 border rounded-lg p-4 hover:bg-trae-card/50 transition-all shadow-hard-sm ${
                     isSelected
                       ? 'border-trae-accent shadow-[0_0_12px_rgba(0,255,136,0.08)]'
                       : skillHasUpdate
@@ -503,6 +558,12 @@ export function InstalledPage() {
                             可更新
                           </span>
                         )}
+                        {skillStale && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 flex items-center gap-0.5">
+                            <Clock className="w-2.5 h-2.5" />
+                            可能过期
+                          </span>
+                        )}
                         {skill.enabled ? (
                           <Power className="w-3 h-3 text-trae-success shrink-0" />
                         ) : (
@@ -528,6 +589,15 @@ export function InstalledPage() {
                       <p className="text-[11px] text-trae-text-secondary mt-1 font-mono truncate">
                         {skill.path}
                       </p>
+                      {skill.installedAt && (
+                        <p className="text-[11px] text-trae-text-secondary/70 mt-0.5 flex items-center gap-1">
+                          <Clock className="w-2.5 h-2.5 shrink-0" />
+                          {formatAge(skill.installedAt)}
+                          {skill.lastCheckedAt
+                            ? ` · 上次检查 ${formatAge(skill.lastCheckedAt).replace('安装', '检查')}`
+                            : ' · 从未检查更新'}
+                        </p>
+                      )}
                     </div>
 
                     {/* Expand arrow */}
@@ -608,7 +678,7 @@ export function InstalledPage() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 22 }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-3 bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-3 bg-trae-sidebar border border-trae-border rounded-xl shadow-hard"
         >
           <span className="text-sm text-trae-text">
             已选择 {selectedSkills.size} 个 Skill
@@ -646,7 +716,7 @@ export function InstalledPage() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 24 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[520px] max-w-[90vw] bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl overflow-hidden"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[520px] max-w-[90vw] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-trae-border">
                 <h3 className="text-trae-text font-semibold text-base">
@@ -739,7 +809,7 @@ export function InstalledPage() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 24 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[560px] max-w-[90vw] bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl overflow-hidden"
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[560px] max-w-[90vw] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-trae-border">
                 <h3 className="text-trae-text font-semibold text-base">
@@ -853,7 +923,7 @@ export function InstalledPage() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 10, scale: 0.95 }}
           transition={{ type: 'spring' as const, mass: 1, stiffness: 250, damping: 22 }}
-          className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium shadow-lg z-50 ${
+          className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium shadow-hard z-50 ${
             toast.type === 'success'
               ? 'bg-trae-success/20 text-trae-success border border-trae-success/30'
               : 'bg-trae-danger/20 text-trae-danger border border-trae-danger/30'

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Download, TrendingUp, ExternalLink, Languages, Check, Copy, Star, Heart, Tag } from 'lucide-react';
+import { Download, TrendingUp, ExternalLink, Languages, Check, Copy, Star, Heart, Tag, Github, Scale } from 'lucide-react';
 import { useSkillStore, getSkillTags } from '../store/skillStore';
 import type { RemoteSkill } from '../types';
 import { useMotionConfig } from '../lib/motionConfig';
@@ -41,6 +41,7 @@ export function SkillCard({
   const isFav = isFavorite(skill.id);
   const [heartAnimating, setHeartAnimating] = useState(false);
   const springMedium = getTransition('medium');
+  const springSnappy = getTransition('snappy');
 
   // Highlight matching text in skill name
   const highlightedName = (() => {
@@ -147,8 +148,8 @@ export function SkillCard({
         aria-label={`查看 ${skill.name} 详情`}
         onClick={handleCardClick}
         onKeyDown={handleKeyDown}
-        whileHover={{ y: -1, transition: { type: 'spring', mass: 1, stiffness: 300, damping: 25 } }}
-        whileTap={{ scale: 0.995, transition: { type: 'spring', mass: 1, stiffness: 500, damping: 30 } }}
+        whileHover={{ y: -1, transition: springSnappy }}
+        whileTap={{ scale: 0.995, transition: springSnappy }}
         className={`bg-trae-card/40 border rounded-lg px-3 py-2.5 hover:bg-trae-card/60 transition-colors group cursor-pointer focus:outline-none focus:ring-2 focus:ring-trae-accent/40 ${
           selected
             ? 'border-trae-accent shadow-[0_0_12px_rgba(0,255,136,0.08)]'
@@ -208,9 +209,17 @@ export function SkillCard({
 
           {/* Source */}
           <div className="hidden md:block shrink-0 w-[140px]">
-            <span className="text-[11px] text-trae-text-secondary truncate block">
+            <span
+              className="text-[11px] text-trae-text-secondary truncate block"
+              title={skill.repoDescription || skill.source}
+            >
               {skill.source}
             </span>
+            {skill.license && (
+              <span className="text-[10px] text-trae-text-secondary/60 truncate block">
+                {skill.license}
+              </span>
+            )}
           </div>
 
           {/* Installs */}
@@ -222,7 +231,7 @@ export function SkillCard({
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               data-favorite
               onClick={handleFavoriteClick}
@@ -238,7 +247,7 @@ export function SkillCard({
                 animate={heartAnimating ? { scale: [1, 1.4, 1], rotate: [0, -10, 10, -10, 0] } : {}}
                 transition={{ duration: 0.6, times: [0, 0.3, 0.6, 0.8, 1] }}
               >
-                <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
+                <Heart className={`w-4 h-4 ${isFav ? 'fill-current' : ''}`} />
               </motion.div>
             </button>
             <button
@@ -274,9 +283,9 @@ export function SkillCard({
       aria-label={`查看 ${skill.name} 详情`}
       onClick={handleCardClick}
       onKeyDown={handleKeyDown}
-      whileHover={{ y: -2, transition: { type: 'spring', mass: 1, stiffness: 300, damping: 25 } }}
-      whileTap={{ scale: 0.995, transition: { type: 'spring', mass: 1, stiffness: 500, damping: 30 } }}
-      className={`bg-trae-card/40 border rounded-xl p-4 hover:bg-trae-card/60 transition-colors group skill-enter cursor-pointer focus:outline-none focus:ring-2 focus:ring-trae-accent/40 ${
+      whileHover={{ y: -2, transition: springSnappy }}
+      whileTap={{ scale: 0.995, transition: springSnappy }}
+      className={`bg-trae-card/40 border rounded-xl p-4 hover:bg-trae-card/60 transition-colors group skill-enter cursor-pointer focus:outline-none focus:ring-2 focus:ring-trae-accent/40 h-full overflow-hidden ${
         selected
           ? 'border-trae-accent shadow-[0_0_12px_rgba(0,255,136,0.08)]'
           : 'border-trae-border hover:border-trae-accent/30'
@@ -329,6 +338,12 @@ export function SkillCard({
                     <span className="truncate max-w-[180px]">{skill.source}</span>
                   </a>
                 )}
+                {skill.license && (
+                  <span className="flex items-center gap-1 text-xs text-trae-text-secondary/60">
+                    <Scale className="w-3 h-3" />
+                    {skill.license}
+                  </span>
+                )}
                 {skill.installs > 0 && (
                   <span className="flex items-center gap-1 text-xs text-trae-text-secondary">
                     <TrendingUp className="w-3 h-3" />
@@ -342,23 +357,32 @@ export function SkillCard({
                   </span>
                 )}
               </div>
-              {skill.description && (
-                <div className="mt-2">
-                  <p className={`text-xs line-clamp-2 ${showTranslation ? 'text-trae-text-secondary/60' : 'text-trae-text-secondary'}`}>
-                    {skill.description}
-                  </p>
-                  {showTranslation && (
-                    <p className="text-xs text-trae-accent mt-1 line-clamp-2 flex items-start gap-1">
-                      <Languages className="w-3 h-3 shrink-0 mt-0.5" />
-                      {translatedDesc}
+              {(skill.description || skill.repoDescription) && (
+                <div className="mt-2 space-y-1">
+                  {skill.description ? (
+                    <>
+                      <p className={`text-xs line-clamp-1 ${showTranslation ? 'text-trae-text-secondary/60' : 'text-trae-text-secondary'}`}>
+                        {skill.description}
+                      </p>
+                      {showTranslation && (
+                        <p className="text-xs text-trae-accent line-clamp-1 flex items-start gap-1">
+                          <Languages className="w-3 h-3 shrink-0 mt-0.5" />
+                          {translatedDesc}
+                        </p>
+                      )}
+                    </>
+                  ) : skill.repoDescription ? (
+                    <p className="text-xs text-trae-text-secondary/70 line-clamp-1 flex items-start gap-1">
+                      <Github className="w-3 h-3 shrink-0 mt-0.5" />
+                      {skill.repoDescription}
                     </p>
-                  )}
+                  ) : null}
                 </div>
               )}
 
               {/* Tags */}
               {tags.length > 0 && (
-                <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+                <div className="flex items-center gap-1.5 mt-3 overflow-hidden">
                   <Tag className="w-3 h-3 text-trae-text-secondary/50 shrink-0" />
                   {visibleTags.map((tag) => (
                     <button
@@ -384,12 +408,12 @@ export function SkillCard({
             </div>
 
             {/* Action buttons */}
-            <div className="flex flex-col items-center gap-1.5 shrink-0">
+            <div className="flex flex-col items-center gap-2 shrink-0">
               <button
                 data-favorite
                 onClick={handleFavoriteClick}
                 aria-label={isFav ? '取消收藏' : '收藏'}
-                className={`p-1.5 rounded-lg transition-all ${
+                className={`p-2 rounded-lg transition-all ${
                   isFav
                     ? 'text-trae-accent bg-trae-accent/10'
                     : 'text-trae-text-secondary hover:text-trae-accent hover:bg-trae-card/60 opacity-0 group-hover:opacity-100 focus:opacity-100'
@@ -416,10 +440,10 @@ export function SkillCard({
                 data-copy
                 onClick={handleCopyClick}
                 aria-label="复制安装命令"
-                className="p-1.5 rounded-lg text-trae-text-secondary hover:text-trae-text hover:bg-trae-card/60 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                className="p-2 rounded-lg text-trae-text-secondary hover:text-trae-text hover:bg-trae-card/60 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
                 title="复制安装命令"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-trae-success" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-4 h-4 text-trae-success" /> : <Copy className="w-4 h-4" />}
               </button>
               <button
                 data-install

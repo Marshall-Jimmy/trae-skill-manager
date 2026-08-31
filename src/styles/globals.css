@@ -13,6 +13,13 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  /* Blueprint grid background (black-green theme) */
+  background-image:
+    linear-gradient(rgba(0, 255, 136, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 136, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(0, 255, 136, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 136, 0.02) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px;
   /* Apple-level font rendering */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -40,11 +47,10 @@ a {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 3px;
+  background: rgba(0, 255, 136, 0.15);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(0, 255, 136, 0.3);
 }
 
 /* ─── Animations ──────────────────────────────────────────────────────────── */
@@ -85,6 +91,45 @@ a {
 .stagger-3 { animation-delay: 0.09s; }
 .stagger-4 { animation-delay: 0.12s; }
 .stagger-5 { animation-delay: 0.15s; }
+
+/* ─── Skeleton Screen ─────────────────────────────────────────────────────── */
+/* Cheap shimmer: only transform is animated (GPU-composited), so many
+   placeholders can run at once without jank. */
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+}
+.skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 255, 136, 0.08),
+    transparent
+  );
+  animation: skeletonSweep 1.4s ease-in-out infinite;
+}
+@keyframes skeletonSweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+body.theme-light .skeleton-block {
+  background: rgba(0, 0, 0, 0.06);
+}
+body.theme-light .skeleton-block::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 0, 0, 0.06),
+    transparent
+  );
+}
 
 /* ─── Apple Easing Utility ──────────────────────────────────────────────── */
 /* Use this class for CSS transition with Apple curve */

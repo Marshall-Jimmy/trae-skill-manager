@@ -3,7 +3,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:14200",
     "frontendDist": "../dist"
   },
   "bundle": {

@@ -46,61 +46,152 @@ fn build_client(token: Option<&str>) -> reqwest::Client {
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
-/// Search for community skills on GitHub.
-/// Uses /search/repositories (no auth required) with multiple query strategies.
-pub async fn search_github_skills(query: &str, limit: u32, token: Option<&str>) -> Result<Vec<RemoteSkill>, String> {
-    let client = build_client(token);
-    let limit = limit.min(100);
-    let mut all_skills = Vec::new();
-    let mut seen_repos = std::collections::HashSet::new();
+/// Aggregator/awesome-list repos are not installable skills; they only
+/// document other skills and pollute search results.
+fn is_aggregator_repo(full_name: &str, description: Option<&str>) -> bool {
+    let name = full_name
+        .split('/')
+        .nth(1)
+        .unwrap_or("")
+        .to_lowercase();
+    let desc = description.unwrap_or("").to_lowercase();
 
-    // Strategy 1: Search repos with SKILL.md in readme
-    if !query.trim().is_empty() {
-        let search_query = format!("{} SKILL.md in:readme", query.trim());
-        if let Ok(skills) = search_repos(&client, &search_query, limit, token).await {
-            for skill in skills {
-                if seen_repos.insert(skill.source.clone()) {
-                    all_skills.push(skill);
+    if name.starts_with("awesome-") || name.starts_with("awesome_") {
+        return true;
+    }
+    if name.contains("awesome") && (name.contains("skill") || name.contains("agent")) {
+        return true;
+    }
+    if desc.contains("curated list") || desc.contains("collection of") || desc.contains("awesome list") {
+        return true;
+    }
+    const AGGREGATORS: &[&str] = &[
+        "awesome-mcp-servers",
+        "awesome-claude-skills",
+        "awesome-agent-skills",
+        "agentic-awesome-skills",
+        "awesome-codex-skills",
+        "awesome-ai-agents",
+        "awesome-llm-apps",
+    ];
+    AGGREGATORS.contains(&name.as_str())
+}
+
+/// Check whether a repo actually ships a SKILL.md. Uses raw.githubusercontent.com
+/// (no API rate limit) for root-level and skills/ paths, then falls back to the
+/// GitHub API contents endpoint for repos whose name suggests they are skill
+/// repos but keep skills in per-skill subdirectories (skills/<name>/SKILL.md,
+/// e.g. supabase/agent-skills, anthropics/skills, obra/superpowers).
+async fn repo_has_skill_md(client: &reqwest::Client, repo: &str) -> bool {
+    for branch in &["main", "master"] {
+        for path in &["SKILL.md", "skills/SKILL.md"] {
+            let url = format!(
+                "https://raw.githubusercontent.com/{}/{}/{}",
+                repo, branch, path
+            );
+            if let Ok(resp) = client.get(&url).send().await {
+                if resp.status().is_success() {
+                    return true;
                 }
             }
         }
     }
 
-    // Strategy 2: Search repos with "agent skills" or "claude skills" topic
-    let topic_query = if query.trim().is_empty() {
-        "topic:agent-skills".to_string()
-    } else {
-        format!("{} topic:agent-skills", query.trim())
-    };
-    if let Ok(skills) = search_repos(&client, &topic_query, limit, token).await {
+    // Only spend a rate-limited API call on repos that plausibly host skills.
+    let name = repo.split('/').nth(1).unwrap_or("").to_lowercase();
+    if !(name.contains("skill") || name.contains("agent") || name.contains("superpowers")) {
+        return false;
+    }
+
+    let url = format!("{}/{}/contents/skills", GITHUB_API_BASE, repo);
+    matches!(
+        client.get(&url).send().await,
+        Ok(r) if r.status().is_success()
+    )
+}
+
+/// Search for community skills on GitHub.
+///
+/// Merges two sources so popular skills always surface regardless of GitHub
+/// API rate limits:
+///   1. skills.sh search (reliable, real install counts, no GitHub rate limit)
+///   2. GitHub `/search/repositories` with `{q} in:name` (verified to return
+///      relevant repos; the old `{q} topic:agent-skills` queries were dropped
+///      because GitHub ignores the free-text term when combined with a topic
+///      qualifier, returning unrelated high-star repos).
+///
+/// GitHub-only candidates are verified to actually ship a SKILL.md via
+/// raw.githubusercontent.com (no API rate limit); skills.sh candidates are
+/// already verified by the index.
+pub async fn search_github_skills(query: &str, limit: u32, token: Option<&str>) -> Result<Vec<RemoteSkill>, String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let limit = limit.min(100);
+    let client = build_client(token);
+
+    let mut all_skills = Vec::new();
+    let mut covered_sources = std::collections::HashSet::new();
+
+    // 1. skills.sh search: primary source, always works.
+    let ss_client = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| client.clone());
+    let ss_results = crate::commands::fetch::search_skills_via_skills_sh(&ss_client, q).await;
+    eprintln!("[search_github] skills.sh results for '{}': {}", q, ss_results.len());
+    for skill in ss_results {
+        covered_sources.insert(skill.source.clone());
+        all_skills.push(skill);
+    }
+
+    // 2. GitHub name search: catches repos whose name contains the query.
+    if let Ok(skills) = search_repos(&client, &format!("{} in:name", q), limit, token).await {
         for skill in skills {
-            if seen_repos.insert(skill.source.clone()) {
+            if !covered_sources.contains(&skill.source) {
                 all_skills.push(skill);
             }
         }
     }
 
-    // Strategy 3: Search repos with "skill" in name and description
-    let name_query = if query.trim().is_empty() {
-        "skill agent in:name,description".to_string()
-    } else {
-        format!("{} skill agent in:name,description", query.trim())
-    };
-    if let Ok(skills) = search_repos(&client, &name_query, limit, token).await {
-        for skill in skills {
-            if seen_repos.insert(skill.source.clone()) {
-                all_skills.push(skill);
-            }
+    // 3. Verify GitHub-only candidates actually ship a SKILL.md. skills.sh
+    //    candidates are already verified by the index.
+    let total_candidates = all_skills.len();
+    let mut handles = Vec::new();
+    for skill in all_skills {
+        if skill.data_source == "skills-sh" {
+            handles.push(tokio::spawn(async move { Some(skill) }));
+            continue;
         }
+        let client = client.clone();
+        let source = skill.source.clone();
+        handles.push(tokio::spawn(async move {
+            if is_aggregator_repo(&source, None) {
+                return None;
+            }
+            if repo_has_skill_md(&client, &source).await {
+                Some(skill)
+            } else {
+                None
+            }
+        }));
     }
 
-    // Sort by stars descending
-    all_skills.sort_by(|a, b| b.installs.cmp(&a.installs));
+    let mut verified = Vec::new();
+    for handle in handles {
+        if let Ok(Some(skill)) = handle.await {
+            verified.push(skill);
+        }
+    }
+    eprintln!("[search_github] verified {} / {} candidates", verified.len(), total_candidates);
 
-    // Trim to limit
-    all_skills.truncate(limit as usize);
+    // Sort by installs (skills.sh) then stars (GitHub) descending.
+    verified.sort_by(|a, b| b.installs.cmp(&a.installs).then_with(|| a.name.cmp(&b.name)));
+    verified.truncate(limit as usize);
 
-    Ok(all_skills)
+    Ok(verified)
 }
 
 async fn search_repos(
@@ -165,6 +256,9 @@ async fn search_repos(
             is_duplicate: false,
             data_source: "github-api".to_string(),
             stars: Some(repo.stargazers_count),
+            repo_description: repo.description.clone(),
+            updated_at: None,
+            license: None,
         });
     }
 
@@ -172,13 +266,16 @@ async fn search_repos(
 }
 
 /// Search GitHub repositories by keyword (broader search).
+/// Uses `{q} in:name` — the old `{q} topic:agent-skills` query was dropped
+/// because GitHub ignores the free-text term when combined with a topic
+/// qualifier, returning unrelated high-star repos.
 pub async fn search_github_repos(query: &str, limit: u32, token: Option<&str>) -> Result<Vec<RemoteSkill>, String> {
     if query.trim().is_empty() {
         return Ok(Vec::new());
     }
 
     let client = build_client(token);
-    let search_query = format!("{} SKILL.md in:readme", query.trim());
+    let search_query = format!("{} in:name", query.trim());
 
     search_repos(&client, &search_query, limit, token).await
 }

@@ -183,7 +183,7 @@ export function CustomInstallDialog({ open, onClose }: CustomInstallDialogProps)
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 5 }}
             transition={{ type: 'spring', mass: 1, stiffness: 220, damping: 24 }}
-            className="relative w-full max-w-lg bg-trae-sidebar border border-trae-border rounded-2xl shadow-2xl mx-4 max-h-[85vh] flex flex-col"
+            className="relative w-full max-w-lg bg-trae-sidebar border border-trae-border rounded-2xl shadow-hard-lg mx-4 max-h-[85vh] flex flex-col"
           >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-trae-border">

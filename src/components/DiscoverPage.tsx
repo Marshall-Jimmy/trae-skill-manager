@@ -2,13 +2,15 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SearchBar } from './SearchBar';
 import { SkillCard } from './SkillCard';
+import { SkeletonList } from './SkeletonCard';
 import { SkillDetailPanel } from './SkillDetailPanel';
 import { CustomInstallDialog } from './CustomInstallDialog';
 import { useSkillStore } from '../store/skillStore';
 import type { SortBy } from '../store/skillStore';
-import type { RemoteSkill, SkillCategory, DiscoverTab } from '../types';
+import type { RemoteSkill, DiscoverTab } from '../types';
 import { CATEGORIES } from '../types';
 import { useMotionConfig } from '../lib/motionConfig';
+import { useVirtualList } from '../lib/useVirtualList';
 import {
   Loader2,
   AlertCircle,
@@ -26,21 +28,13 @@ import {
   Heart,
   Grid3X3,
   List,
-  Tag,
   Star,
-  Code2,
-  FileText,
-  Database,
-  Palette,
-  Share2,
-  Settings2,
-  MoreHorizontal,
   RotateCcw,
   Check,
   Filter,
-  Flame,
   Globe,
   Folder,
+  Clock,
 } from 'lucide-react';
 
 interface DiscoverPageProps {
@@ -58,158 +52,16 @@ const searchModes: { id: SearchMode; label: string; icon: typeof Github }[] = [
 const sortOptions: { value: SortBy; label: string }[] = [
   { value: 'installs', label: '按安装量' },
   { value: 'stars', label: '按 Stars' },
-  { value: 'name', label: '按名称' },
   { value: 'updated', label: '按更新时间' },
+  { value: 'name', label: '按名称' },
 ];
 
 const discoverTabs: { id: DiscoverTab; label: string; icon: typeof TrendingUp }[] = [
   { id: 'all', label: '全部', icon: Sparkles },
   { id: 'trending', label: '趋势', icon: TrendingUp },
-  { id: 'popular', label: '热门', icon: Flame },
+  { id: 'recent', label: '最近更新', icon: Clock },
   { id: 'favorites', label: '收藏', icon: Heart },
 ];
-
-// ─── Category icon map ───────────────────────────────────────────────────
-
-const categoryIconMap: Record<string, React.ElementType> = {
-  Grid3X3: Grid3X3,
-  Code2: Code2,
-  FileText: FileText,
-  Database: Database,
-  Palette: Palette,
-  Share2: Share2,
-  Settings2: Settings2,
-  Sparkles: Sparkles,
-  MoreHorizontal: MoreHorizontal,
-};
-
-// ─── Category Sidebar ────────────────────────────────────────────────────
-
-function CategorySidebar({
-  activeCategory,
-  onCategoryChange,
-  popularTags,
-  selectedTags,
-  onTagToggle,
-  onClearTags,
-}: {
-  activeCategory: SkillCategory;
-  onCategoryChange: (cat: SkillCategory) => void;
-  popularTags: { tag: string; count: number }[];
-  selectedTags: string[];
-  onTagToggle: (tag: string) => void;
-  onClearTags: () => void;
-}) {
-  const { getTransition } = useMotionConfig();
-  const springMedium = getTransition('medium');
-  const springGentle = getTransition('gentle');
-
-  // Count skills per category (for display)
-  const { remoteSkills, getSkillCategory } = useSkillStore();
-  const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: remoteSkills.length };
-    for (const skill of remoteSkills) {
-      const cat = getSkillCategory(skill);
-      counts[cat] = (counts[cat] || 0) + 1;
-    }
-    return counts;
-  }, [remoteSkills, getSkillCategory]);
-
-  return (
-    <motion.aside
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ ...springGentle, delay: 0.05 }}
-      className="w-[180px] shrink-0 flex flex-col h-full overflow-hidden"
-    >
-      {/* Categories */}
-      <div className="flex-1 overflow-y-auto pr-1 space-y-0.5">
-        <div className="text-[11px] font-semibold text-trae-text-secondary/60 uppercase tracking-wider px-3 mb-2 mt-1">
-          分类
-        </div>
-        {CATEGORIES.map((cat, i) => {
-          const Icon = categoryIconMap[cat.icon] || Grid3X3;
-          const isActive = activeCategory === cat.id;
-          const count = categoryCounts[cat.id] || 0;
-          return (
-            <motion.button
-              key={cat.id}
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ ...springMedium, delay: 0.08 + i * 0.03 }}
-              whileHover={{ x: 3, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => onCategoryChange(cat.id)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                isActive
-                  ? 'bg-trae-accent/10 text-trae-accent font-medium border border-trae-accent/20'
-                  : 'text-trae-text-secondary hover:text-trae-text hover:bg-trae-card/40 border border-transparent'
-              }`}
-              title={cat.description}
-            >
-              <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-trae-accent' : ''}`} />
-              <span className="flex-1 text-left truncate">{cat.label}</span>
-              {cat.id !== 'all' && count > 0 && (
-                <span className={`text-[10px] shrink-0 ${isActive ? 'text-trae-accent/70' : 'text-trae-text-secondary/50'}`}>
-                  {count}
-                </span>
-              )}
-            </motion.button>
-          );
-        })}
-      </div>
-
-      {/* Hot tags */}
-      {popularTags.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springGentle, delay: 0.3 }}
-          className="mt-4 pt-4 border-t border-trae-border"
-        >
-          <div className="flex items-center justify-between px-3 mb-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-trae-text-secondary/60 uppercase tracking-wider">
-              <Tag className="w-3 h-3" />
-              热门标签
-            </div>
-            {selectedTags.length > 0 && (
-              <button
-                onClick={onClearTags}
-                className="text-[10px] text-trae-text-secondary hover:text-trae-accent transition-colors"
-              >
-                清除
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-            {popularTags.slice(0, 12).map(({ tag, count }, i) => {
-              const isSelected = selectedTags.includes(tag);
-              return (
-                <motion.button
-                  key={tag}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ ...springMedium, delay: 0.35 + i * 0.02 }}
-                  whileHover={{ scale: 1.05, y: -1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => onTagToggle(tag)}
-                  className={`px-2 py-1 rounded-full text-[10px] font-medium transition-all ${
-                    isSelected
-                      ? 'bg-trae-accent/20 text-trae-accent border border-trae-accent/30'
-                      : 'bg-trae-card/50 text-trae-text-secondary border border-trae-border/50 hover:bg-trae-accent/10 hover:text-trae-accent hover:border-trae-accent/20'
-                  }`}
-                  title={`${count} 个技能`}
-                >
-                  {tag}
-                </motion.button>
-              );
-            })}
-          </div>
-        </motion.div>
-      )}
-    </motion.aside>
-  );
-}
 
 // ─── Sort Dropdown ───────────────────────────────────────────────────────
 
@@ -262,7 +114,7 @@ function SortDropdown({
             animate={{ opacity: 1, y: 0, scale: 1, pointerEvents: 'auto' as const }}
             exit={{ opacity: 0, y: -6, scale: 0.96, pointerEvents: 'none' as const }}
             transition={springFast}
-            className="absolute top-full right-0 mt-1.5 min-w-[140px] bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl z-50 py-1.5 overflow-hidden"
+            className="absolute top-full right-0 mt-1.5 min-w-[140px] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard z-50 py-1.5 overflow-hidden"
           >
             {sortOptions.map((opt, i) => (
               <motion.button
@@ -327,7 +179,7 @@ function FilterPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.1, ...springFast }}
-            className="bg-trae-card/30 border border-trae-border rounded-xl p-4 mb-4"
+            className="bg-trae-card/30 border border-trae-border rounded-xl p-4 mb-4 shadow-hard-sm"
           >
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 text-sm font-medium text-trae-text">
@@ -491,7 +343,7 @@ function InstallTargetSelector({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.96 }}
             transition={springFast}
-            className="absolute top-full right-0 mt-1.5 min-w-[180px] bg-trae-sidebar border border-trae-border rounded-xl shadow-2xl z-50 py-1.5 overflow-hidden"
+            className="absolute top-full right-0 mt-1.5 min-w-[180px] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard z-50 py-1.5 overflow-hidden"
           >
             <motion.button
               whileHover={{ x: 2 }}
@@ -550,7 +402,6 @@ export function DiscoverPage({
     githubSearchResults,
     githubSearchLoading,
     githubSearchError,
-    favorites,
     activeCategory,
     selectedTags,
     sourceFilters,
@@ -566,6 +417,7 @@ export function DiscoverPage({
     setSortBy,
     clearFilters,
     loadLocalSkills,
+    localSkills,
     batchInstall,
     translateSkills,
     searchGithubSkills,
@@ -574,15 +426,16 @@ export function DiscoverPage({
     getHotSearches,
     addSearchHistory,
     setCategory,
-    toggleTag,
     clearTags,
-    getPopularTags,
     toggleSourceFilter,
     setSourceFilters,
     setQualityFilter,
     setViewMode,
     setDiscoverTab,
+    searchMode,
+    setSearchMode,
     getEnhancedFilteredSkills,
+    updateConfig,
     // Project-related
     currentProjectId,
     getCurrentProject,
@@ -599,7 +452,6 @@ export function DiscoverPage({
     type: 'success' | 'error';
     message: string;
   } | null>(null);
-  const [searchMode, setSearchMode] = useState<SearchMode>('official');
   const [githubQuery, setGithubQuery] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
@@ -617,11 +469,6 @@ export function DiscoverPage({
     }));
   }, [remoteSkills]);
 
-  // Popular tags
-  const popularTags = useMemo(() => {
-    return getPopularTags(12);
-  }, [getPopularTags, remoteSkills.length]);
-
   // Dynamic spring configs
   const springMedium = getTransition('medium');
   const springGentle = getTransition('gentle');
@@ -638,6 +485,16 @@ export function DiscoverPage({
       translateSkills(remoteSkills);
     }
   }, [config.translation.enabled, remoteSkills.length, searchMode]);
+
+  const toggleImmersive = useCallback(() => {
+    updateConfig({
+      ...config,
+      translation: {
+        ...config.translation,
+        useImmersive: !config.translation.useImmersive,
+      },
+    });
+  }, [config, updateConfig]);
 
   const handleSearch = useCallback(
     (query: string) => {
@@ -684,6 +541,18 @@ export function DiscoverPage({
 
   const handleInstall = useCallback(
     async (skill: RemoteSkill) => {
+      // Conflict detection: confirm before overwriting an existing install.
+      if (localSkills.length === 0) {
+        await loadLocalSkills();
+      }
+      const existing = localSkills.find((s) => s.name === skill.name);
+      if (existing) {
+        const ok = confirm(
+          `已安装同名 Skill「${skill.name}」(${existing.path})。\n继续将覆盖现有版本，是否继续？`
+        );
+        if (!ok) return;
+      }
+
       setInstallingId(skill.id);
       try {
         const currentProject = getCurrentProject();
@@ -706,7 +575,7 @@ export function DiscoverPage({
       setInstallingId(null);
       setTimeout(() => setToast(null), 3000);
     },
-    [installSkillStreamedToTarget, loadLocalSkills, loadProjectSkills, installTarget, getCurrentProject, config.globalSkillsPath]
+    [installSkillStreamedToTarget, loadLocalSkills, loadProjectSkills, installTarget, getCurrentProject, config.globalSkillsPath, localSkills]
   );
 
   const handleBatchInstall = useCallback(async () => {
@@ -738,13 +607,35 @@ export function DiscoverPage({
     clearFilters();
   }, [setSourceFilters, setQualityFilter, clearTags, setCategory, clearFilters]);
 
-  // Filter and sort skills
-  const sortedSkills = useMemo(() => {
-    if (searchMode === 'github') {
-      return githubSearchResults;
-    }
-    return getEnhancedFilteredSkills();
-  }, [searchMode, githubSearchResults, getEnhancedFilteredSkills]);
+  // Filter and sort skills.
+  // NOTE: must NOT memoize on getEnhancedFilteredSkills alone - it is a stable
+  // zustand action, so the memo would cache the pre-load empty result and never
+  // recompute when remoteSkills arrives. Compute directly instead.
+  const sortedSkills = searchMode === 'github'
+    ? githubSearchResults
+    : getEnhancedFilteredSkills();
+
+  // Windowed virtualization: only the viewport-visible cards are in the DOM,
+  // so a 1000+ item list scrolls smoothly instead of painting every card.
+  // The gap between cards is folded into itemHeight so the virtual list's
+  // totalHeight math stays in sync with the rendered spacing.
+  const gap = viewMode === 'list' ? 8 : 16;
+  const itemHeight = (viewMode === 'list' ? 56 : 168) + gap;
+  const {
+    containerRef,
+    startIndex,
+    endIndex,
+    totalHeight,
+    offsetY,
+    resetScroll,
+  } = useVirtualList(sortedSkills.length, itemHeight);
+  const visibleSkills = sortedSkills.slice(startIndex, endIndex);
+
+  // Jump back to the top when the result set is replaced (search/filter/sort/
+  // view change). loadMore appends data and must NOT reset the scroll position.
+  useEffect(() => {
+    resetScroll();
+  }, [resetScroll, searchQuery, activeCategory, selectedTags, sourceFilters, qualityFilter, sortBy, discoverTab, searchMode, viewMode]);
 
   // Empty state message
   const emptyMessage = useMemo(() => {
@@ -778,18 +669,6 @@ export function DiscoverPage({
 
   return (
     <div className="h-full flex p-6 gap-6">
-      {/* Left Sidebar - only in official mode */}
-      {searchMode === 'official' && (
-        <CategorySidebar
-          activeCategory={activeCategory}
-          onCategoryChange={setCategory}
-          popularTags={popularTags}
-          selectedTags={selectedTags}
-          onTagToggle={toggleTag}
-          onClearTags={clearTags}
-        />
-      )}
-
       {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
@@ -797,7 +676,7 @@ export function DiscoverPage({
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springGentle }}
-          className="flex items-start justify-between mb-6"
+          className="flex items-start justify-between mb-4"
         >
           <div>
             <motion.h1
@@ -851,69 +730,85 @@ export function DiscoverPage({
           </div>
         </motion.div>
 
-        {/* Search mode toggle */}
+        {/* Search: mode toggle + input + translation status in one row */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ ...springGentle, delay: 0.06 }}
-          className="flex gap-2 mb-3"
+          className="flex items-center gap-2 mb-3"
         >
-          {searchModes.map((mode, i) => {
-            const Icon = mode.icon;
-            return (
-              <motion.button
-                key={mode.id}
-                onClick={() => handleSearchModeChange(mode.id)}
-                whileHover={{ scale: 1.04, y: -1 }}
-                whileTap={{ scale: 0.96 }}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ ...springMedium, delay: 0.08 + i * 0.04 }}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  searchMode === mode.id
-                    ? 'bg-trae-accent/15 text-trae-accent border border-trae-accent/25 shadow-sm shadow-trae-accent/5'
-                    : 'bg-trae-card/40 text-trae-text-secondary border border-trae-border hover:bg-trae-card/60 hover:text-trae-text'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {mode.label}
-              </motion.button>
-            );
-          })}
+          {/* Search mode segmented control */}
+          <div className="flex items-center bg-trae-card/40 border border-trae-border rounded-xl p-0.5 shrink-0">
+            {searchModes.map((mode, i) => {
+              const Icon = mode.icon;
+              const isActive = searchMode === mode.id;
+              return (
+                <motion.button
+                  key={mode.id}
+                  onClick={() => handleSearchModeChange(mode.id)}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.95 }}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...springMedium, delay: 0.08 + i * 0.04 }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    isActive
+                      ? 'bg-trae-accent/15 text-trae-accent'
+                      : 'text-trae-text-secondary hover:text-trae-text'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {mode.label}
+                </motion.button>
+              );
+            })}
+          </div>
+
+          {/* Search input */}
+          <div className="flex-1 min-w-0">
+            <SearchBar
+              ref={searchRef}
+              onSearch={handleSearch}
+              placeholder={searchMode === 'github' ? '搜索 GitHub 社区 Skill...' : '搜索 Skill...'}
+            />
+          </div>
+
+          {/* Translation status */}
           {config.translation.enabled && (
             <motion.div
-              className="flex items-center gap-1.5 text-xs text-trae-accent ml-auto"
+              className="flex items-center gap-2 text-xs shrink-0"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.3 }}
             >
-              <Languages className="w-3.5 h-3.5" />
+              <button
+                onClick={toggleImmersive}
+                title={
+                  config.translation.useImmersive
+                    ? '当前为沉浸式免费翻译，点击切换为 AI 翻译'
+                    : '当前为 AI 翻译，点击切换为沉浸式免费翻译'
+                }
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border transition-colors ${
+                  config.translation.useImmersive
+                    ? 'bg-trae-accent/15 text-trae-accent border-trae-accent/30'
+                    : 'bg-trae-card/40 text-trae-text-secondary border-trae-border hover:text-trae-text hover:border-trae-border-hover'
+                }`}
+              >
+                <Languages className="w-3.5 h-3.5" />
+                {config.translation.useImmersive ? '沉浸式免费' : 'AI 翻译'}
+              </button>
               {translating ? (
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1 text-trae-accent">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   翻译中...
                 </span>
               ) : translations.size > 0 ? (
-                `已翻译 ${translations.size} 条`
+                <span className="text-trae-accent">已翻译 {translations.size} 条</span>
               ) : (
-                '翻译就绪'
+                <span className="text-trae-text-secondary">翻译就绪</span>
               )}
             </motion.div>
           )}
-        </motion.div>
-
-        {/* Search */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...springGentle, delay: 0.08 }}
-          className="mb-4"
-        >
-          <SearchBar
-            ref={searchRef}
-            onSearch={handleSearch}
-            placeholder={searchMode === 'github' ? '搜索 GitHub 社区 Skill...' : '搜索 Skill...'}
-          />
         </motion.div>
 
         {/* Filter tabs + Sort + View toggle */}
@@ -945,11 +840,6 @@ export function DiscoverPage({
                   >
                     <Icon className="w-3.5 h-3.5" />
                     {tab.label}
-                    {tab.id === 'favorites' && favorites.length > 0 && (
-                      <span className="ml-0.5 text-[10px] bg-trae-accent/20 px-1.5 rounded-full">
-                        {favorites.length}
-                      </span>
-                    )}
                   </motion.button>
                 );
               })}
@@ -1021,8 +911,10 @@ export function DiscoverPage({
               </motion.button>
             )}
 
-            {/* Sort dropdown */}
-            <SortDropdown value={sortBy} onChange={setSortBy} />
+            {/* Sort dropdown (hidden on tabs with fixed canonical order) */}
+            {discoverTab !== 'recent' && (
+              <SortDropdown value={sortBy} onChange={setSortBy} />
+            )}
 
             {/* Clear filters */}
             <AnimatePresence>
@@ -1059,7 +951,7 @@ export function DiscoverPage({
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+        <div ref={containerRef} className="flex-1 overflow-y-auto pr-1">
           {/* Results count */}
           <AnimatePresence>
             {!githubSearchLoading && !remoteLoading && sortedSkills.length > 0 && (
@@ -1079,26 +971,9 @@ export function DiscoverPage({
           </AnimatePresence>
 
           {searchMode === 'github' && githubSearchLoading ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-center justify-center h-40 gap-3"
-            >
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-              >
-                <Loader2 className="w-7 h-7 text-trae-accent" />
-              </motion.div>
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2 }}
-                className="text-xs text-trae-text-secondary"
-              >
-                搜索 GitHub 社区...
-              </motion.p>
-            </motion.div>
+            <div className="pt-1">
+              <SkeletonList count={8} viewMode={viewMode} />
+            </div>
           ) : searchMode === 'github' && githubSearchError ? (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1150,26 +1025,9 @@ export function DiscoverPage({
               </p>
             </motion.div>
           ) : remoteLoading && remoteSkills.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-center justify-center h-40 gap-3"
-            >
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-              >
-                <Loader2 className="w-7 h-7 text-trae-accent" />
-              </motion.div>
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2 }}
-                className="text-xs text-trae-text-secondary"
-              >
-                加载 Skill 列表...
-              </motion.p>
-            </motion.div>
+            <div className="pt-1">
+              <SkeletonList count={8} viewMode={viewMode} />
+            </div>
           ) : remoteError ? (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -1267,39 +1125,28 @@ export function DiscoverPage({
             </motion.div>
           ) : (
             <motion.div
-              initial="hidden"
-              animate="visible"
-              variants={{
-                hidden: {},
-                visible: { transition: { staggerChildren: 0.035 } },
-              }}
-              className={viewMode === 'list' ? 'space-y-1.5' : 'space-y-2.5'}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
             >
-              {sortedSkills.map((skill) => (
-                <motion.div
-                  key={skill.id}
-                  variants={{
-                    hidden: { opacity: 0, y: 12, scale: 0.98 },
-                    visible: {
-                      opacity: 1,
-                      y: 0,
-                      scale: 1,
-                      transition: springMedium,
-                    },
-                  }}
-                >
-                  <SkillCard
-                    skill={skill}
-                    onInstall={handleInstall}
-                    installing={installingId === skill.id}
-                    selected={selectedSkills.has(skill.id)}
-                    onSelect={toggleSelectSkill}
-                    onShowDetail={handleShowDetail}
-                    highlightQuery={searchQuery}
-                    viewMode={viewMode}
-                  />
-                </motion.div>
-              ))}
+              <div style={{ height: totalHeight, position: 'relative' }}>
+                <div style={{ transform: `translateY(${offsetY}px)` }}>
+                  {visibleSkills.map((skill) => (
+                    <div key={skill.id} style={{ height: itemHeight, paddingBottom: gap }}>
+                      <SkillCard
+                        skill={skill}
+                        onInstall={handleInstall}
+                        installing={installingId === skill.id}
+                        selected={selectedSkills.has(skill.id)}
+                        onSelect={toggleSelectSkill}
+                        onShowDetail={handleShowDetail}
+                        highlightQuery={searchQuery}
+                        viewMode={viewMode}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </motion.div>
           )}
 
@@ -1355,7 +1202,7 @@ export function DiscoverPage({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 30, scale: 0.9 }}
               transition={{ type: 'spring' as const, mass: 1, stiffness: 220, damping: 22 }}
-              className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-3 bg-trae-sidebar/95 backdrop-blur-xl border border-trae-border rounded-xl shadow-2xl"
+              className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-5 py-3 bg-trae-sidebar/95 backdrop-blur-xl border border-trae-border rounded-xl shadow-hard"
             >
               <span className="text-sm text-trae-text">
                 已选择 {selectedSkills.size} 个 Skill
@@ -1395,7 +1242,7 @@ export function DiscoverPage({
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 16 }}
                 transition={{ type: 'spring' as const, mass: 1, stiffness: 220, damping: 24 }}
-                className="bg-trae-sidebar border border-trae-border rounded-2xl p-6 w-80 shadow-2xl"
+                className="bg-trae-sidebar border border-trae-border rounded-2xl p-6 w-80 shadow-hard"
               >
                 <h3 className="text-sm font-medium text-trae-text mb-4">
                   {batchProgress.operation === 'install' ? '批量安装中' : '批量卸载中'}
@@ -1426,7 +1273,7 @@ export function DiscoverPage({
               animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
               exit={{ opacity: 0, y: 16, scale: 0.92, x: 20 }}
               transition={{ type: 'spring' as const, mass: 1, stiffness: 280, damping: 22 }}
-              className={`fixed bottom-6 right-6 px-4 py-3 rounded-xl text-sm font-medium shadow-xl z-50 border ${
+              className={`fixed bottom-6 right-6 px-4 py-3 rounded-xl text-sm font-medium shadow-hard z-50 border ${
                 toast.type === 'success'
                   ? 'bg-trae-success/15 text-trae-success border-trae-success/25'
                   : 'bg-trae-danger/15 text-trae-danger border-trae-danger/25'

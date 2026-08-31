@@ -38,26 +38,3 @@ pub fn detect_skills_path() -> PathBuf {
     // Default fallback: first candidate
     candidates[0].clone()
 }
-
-/// Resolve the skills path from an optional config value.
-/// If config_path is Some and non-empty, use it directly.
-/// Otherwise, fall back to auto-detection.
-pub fn resolve_skills_path(config_path: Option<&str>) -> PathBuf {
-    if let Some(p) = config_path {
-        if !p.trim().is_empty() {
-            return PathBuf::from(p);
-        }
-    }
-    detect_skills_path()
-}
-
-/// Normalize a path string:
-/// - Replace backslashes with forward slashes
-/// - Remove trailing slashes
-pub fn normalize_path(p: &str) -> String {
-    let mut s = p.replace('\\', "/");
-    while s.ends_with('/') {
-        s.pop();
-    }
-    s
-}
