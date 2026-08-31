@@ -273,6 +273,20 @@ fn config_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
+fn get_app_data_dir() -> String {
+    dirs::data_dir()
+        .unwrap_or_default()
+        .join("trae-skill-manager")
+        .to_string_lossy()
+        .to_string()
+}
+
+#[tauri::command]
+fn toggle_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
+#[tauri::command]
 fn get_config() -> AppConfig {
     use crate::models::{GithubConfig, TranslationConfig};
 
@@ -482,6 +496,8 @@ fn main() {
             clear_history,
             get_config,
             save_config,
+            get_app_data_dir,
+            toggle_devtools,
             open_folder,
             export_skills,
             import_skills,

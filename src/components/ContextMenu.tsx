@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
+import { clampToViewport } from '../lib/menuPosition';
 
 export interface ContextMenuItem {
   id: string;
@@ -26,11 +28,10 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
 
   const menuHeight =
     items.reduce((acc, it) => acc + (it.separator ? SEPARATOR_HEIGHT : ITEM_HEIGHT), 0) + 12;
-  const left = Math.max(8, Math.min(x, window.innerWidth - MENU_WIDTH - 8));
-  const top = Math.max(8, Math.min(y, window.innerHeight - menuHeight - 8));
+  const { left, top } = clampToViewport(x, y, MENU_WIDTH, menuHeight);
 
   useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
+    const handleClick = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     const handleKey = (e: KeyboardEvent) => {
@@ -38,19 +39,21 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     };
     const handleScroll = () => onClose();
     const handleResize = () => onClose();
-    window.addEventListener('mousedown', handleClick);
+    // pointerdown fires before mousedown, so it beats the titlebar drag-region
+    // handler which intercepts mousedown and stops propagation in Tauri.
+    window.addEventListener('pointerdown', handleClick);
     window.addEventListener('keydown', handleKey);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleResize);
     return () => {
-      window.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('pointerdown', handleClick);
       window.removeEventListener('keydown', handleKey);
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', handleResize);
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <motion.div
       ref={ref}
       initial={{ opacity: 0, scale: 0.95, y: -4 }}
@@ -82,6 +85,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
           </button>
         ),
       )}
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
 }

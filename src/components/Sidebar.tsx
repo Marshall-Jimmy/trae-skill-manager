@@ -27,6 +27,7 @@ interface SidebarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
   onCustomInstall: () => void;
+  collapsed: boolean;
 }
 
 const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -166,78 +167,71 @@ function CategorySection() {
   );
 }
 
-export function Sidebar({ activeTab, onTabChange, onCustomInstall }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, onCustomInstall, collapsed }: SidebarProps) {
   const searchMode = useSkillStore((s) => s.searchMode);
   const showCategories = activeTab === 'discover' && searchMode === 'official';
 
   return (
-    <aside className="w-60 h-full bg-trae-sidebar border-r border-trae-border flex flex-col p-4 shadow-hard overflow-x-hidden">
-      {/* Logo */}
-      <motion.div
-        initial={{ opacity: 0, x: -10 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 22 }}
-        className="flex items-center gap-2 mb-6 px-2 shrink-0"
-        aria-label="TRAE Skill Manager"
-      >
-        <div className="w-8 h-8 border border-trae-accent flex items-center justify-center bg-trae-bg shadow-hard-sm">
-          <span className="text-trae-accent font-bold text-xs">TS</span>
+    <aside
+      className={`${
+        collapsed ? 'w-14' : 'w-60'
+      } h-full bg-trae-sidebar border-r border-trae-border flex flex-col overflow-x-hidden transition-[width] duration-200 ease-in-out`}
+    >
+      {/* Navigation tabs */}
+      <nav className="flex flex-col gap-1 p-2 shrink-0" role="tablist" aria-label="主导航">
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <motion.button
+              key={tab.id}
+              role="tab"
+              aria-selected={isActive}
+              aria-label={tab.label}
+              title={collapsed ? tab.label : undefined}
+              onClick={() => onTabChange(tab.id)}
+              whileHover={{ x: collapsed ? 0 : 3, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } }}
+              whileTap={{ scale: 0.97, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } }}
+              className={`flex items-center gap-3 rounded-lg text-sm transition-colors duration-200 ${
+                collapsed ? 'justify-center px-0 py-2.5 mx-auto w-9' : 'px-3 py-2.5'
+              } ${
+                isActive
+                  ? 'bg-trae-accent/10 text-trae-accent border border-trae-accent/20 shadow-hard-sm'
+                  : 'text-trae-text-secondary hover:text-trae-text hover:bg-white/5'
+              }`}
+            >
+              <tab.icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+              {!collapsed && <span>{tab.label}</span>}
+            </motion.button>
+          );
+        })}
+      </nav>
+
+      {/* Categories (merged into the sidebar, only on discover page in official mode) */}
+      {!collapsed && showCategories && (
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-0.5 flex flex-col">
+          <CategorySection />
         </div>
-        <span className="text-trae-text font-semibold text-sm">Skill Manager</span>
-      </motion.div>
-
-      {/* Scrollable middle: nav + categories */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-0.5 flex flex-col">
-        {/* Navigation tabs */}
-        <nav className="flex flex-col gap-1" role="tablist" aria-label="主导航">
-          {tabs.map((tab, index) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <motion.button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                aria-label={tab.label}
-                onClick={() => onTabChange(tab.id)}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 22, delay: index * 0.05 }}
-                whileHover={{ x: 3, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } }}
-                whileTap={{ scale: 0.97, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } }}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-200 ${
-                  isActive
-                    ? 'bg-trae-accent/10 text-trae-accent border border-trae-accent/20 shadow-hard-sm'
-                    : 'text-trae-text-secondary hover:text-trae-text hover:bg-white/5'
-                }`}
-              >
-                <tab.icon className="w-4 h-4" aria-hidden="true" />
-                <span>{tab.label}</span>
-              </motion.button>
-            );
-          })}
-        </nav>
-
-        {/* Categories (merged into the sidebar, only on discover page in official mode) */}
-        {showCategories && <CategorySection />}
-      </div>
+      )}
 
       {/* Bottom: Custom install button */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 22, delay: 0.2 }}
-        className="mt-auto pt-4 border-t border-trae-border shrink-0"
-      >
-        <motion.button
-          onClick={onCustomInstall}
-          whileHover={{ scale: 1.02, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } }}
-          whileTap={{ scale: 0.97, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } }}
-          className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-trae-text-secondary hover:text-trae-accent hover:bg-trae-accent/5 transition-colors duration-200"
+      {!collapsed && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 22, delay: 0.2 }}
+          className="mt-auto pt-4 border-t border-trae-border shrink-0 p-2"
         >
-          <Plus className="w-4 h-4" aria-hidden="true" />
-          <span>自定义安装</span>
-        </motion.button>
-      </motion.div>
+          <motion.button
+            onClick={onCustomInstall}
+            whileHover={{ scale: 1.02, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } }}
+            whileTap={{ scale: 0.97, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } }}
+            className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-trae-text-secondary hover:text-trae-accent hover:bg-trae-accent/5 transition-colors duration-200"
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            <span>自定义安装</span>
+          </motion.button>
+        </motion.div>
+      )}
     </aside>
   );
 }

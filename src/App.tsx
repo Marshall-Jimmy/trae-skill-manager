@@ -46,6 +46,7 @@ function PageFallback() {
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>(loadActiveTab);
   const [showCustomInstall, setShowCustomInstall] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [menuState, setMenuState] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const { getTransition } = useMotionConfig();
@@ -300,12 +301,17 @@ function App() {
       className="h-screen w-screen flex flex-col overflow-hidden"
       onContextMenu={handleContextMenu}
     >
-      <TitleBar />
+      <TitleBar
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+        onShowAbout={() => setShowAbout(true)}
+      />
       <div className="flex flex-1 overflow-hidden">
       <Sidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onCustomInstall={handleCustomInstall}
+        collapsed={sidebarCollapsed}
       />
       <main className="flex-1 overflow-hidden relative flex flex-col">
         {/* Top bar with project switcher */}

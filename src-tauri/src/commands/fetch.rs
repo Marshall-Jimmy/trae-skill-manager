@@ -59,6 +59,7 @@ const KNOWN_REPOS: &[&str] = &[
     "mattpocock/skills",            // 工程技能包（AI coding agents）
     "addyosmani/agent-skills",      // 生产级工程技能包
     "smyrick/skills",               // AI agent 工作流技能库
+    "emilkowalski/skills",          // UI 动效/设计工程技能包
 ];
 
 // 6 hours: skills/repo metadata changes slowly, and each cache miss fires up to
@@ -153,10 +154,17 @@ struct GitHubFile {
 
 // ─── Cache ────────────────────────────────────────────────────────────────
 
+// Bump when the fetch/merge logic changes so stale caches from older builds
+// are ignored instead of masking the new behavior (e.g. the case-insensitive
+// source match and skills.sh page scraping).
+const CACHE_VERSION: u32 = 3;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct CachedSkills {
     skills: Vec<RemoteSkill>,
     timestamp: i64, // unix timestamp seconds
+    #[serde(default)]
+    version: u32,
 }
 
 fn cache_path() -> PathBuf {
@@ -169,8 +177,20 @@ fn read_cache() -> Option<Vec<RemoteSkill>> {
     if !path.exists() { return None; }
     let content = fs::read_to_string(&path).ok()?;
     let cached: CachedSkills = serde_json::from_str(&content).ok()?;
+    if cached.version != CACHE_VERSION { return None; }
     let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs() as i64;
     if now - cached.timestamp > CACHE_DURATION_SECS as i64 { return None; }
+    Some(cached.skills)
+}
+
+/// Read the cache regardless of freshness. Used as a fallback when a fresh
+/// fetch comes up short (e.g. GitHub API rate limit) so the list never blanks.
+fn read_cache_allow_stale() -> Option<Vec<RemoteSkill>> {
+    let path = cache_path();
+    if !path.exists() { return None; }
+    let content = fs::read_to_string(&path).ok()?;
+    let cached: CachedSkills = serde_json::from_str(&content).ok()?;
+    if cached.version != CACHE_VERSION { return None; }
     Some(cached.skills)
 }
 
@@ -182,6 +202,7 @@ fn write_cache(skills: &[RemoteSkill]) -> Result<(), String> {
     let cached = CachedSkills {
         skills: skills.to_vec(),
         timestamp: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as i64,
+        version: CACHE_VERSION,
     };
     let json = serde_json::to_string_pretty(&cached).map_err(|e| format!("Failed to serialize cache: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("Failed to write cache: {}", e))
@@ -633,13 +654,13 @@ pub async fn fetch_skills(
             }
         };
 
-        // Run all sources in parallel with an overall timeout of 15 seconds.
+        // Run all sources in parallel with an overall timeout of 60 seconds.
         // Use individual futures so a timeout still preserves partial results.
         let api_handle = tokio::spawn(api_fut);
         let npx_handle = tokio::spawn(npx_fut);
 
         let api_results = match tokio::time::timeout(
-            std::time::Duration::from_secs(15),
+            std::time::Duration::from_secs(60),
             api_handle
         ).await {
             Ok(Ok(results)) => results,
@@ -655,11 +676,22 @@ pub async fn fetch_skills(
             Err(_) => { eprintln!("Warning: npx fetch timeout"); Vec::new() }
         };
 
-        // Merge all results with deduplication by id
+        // Merge all results with deduplication by id. skills.sh results first
+        // so real install counts win over the GitHub API's installs: 0.
         let mut seen = std::collections::HashSet::new();
-        for skill in api_results.into_iter().chain(npx_results) {
+        for skill in npx_results.into_iter().chain(api_results) {
             if seen.insert(skill.id.clone()) {
                 merged.push(skill);
+            }
+        }
+
+        // If the fresh fetch came up short (e.g. GitHub API rate limit), merge
+        // the stale cache so previously-seen skills don't vanish.
+        if let Some(stale) = read_cache_allow_stale() {
+            for skill in stale {
+                if seen.insert(skill.id.clone()) {
+                    merged.push(skill);
+                }
             }
         }
 
@@ -883,6 +915,21 @@ pub async fn fetch_github_skill_md(repo_full_name: &str, skill_path: &str, token
 
 // ─── GitHub API fetch (with rate limit) ───────────────────────────────────
 
+/// Check whether `<path>/SKILL.md` exists on `main` or `master` via
+/// raw.githubusercontent.com (no API rate limit) and return the branch that
+/// has it. Some repos (e.g. ComposioHQ/awesome-claude-skills) use `master`.
+async fn skill_md_branch(client: &reqwest::Client, repo: &str, path: &str) -> Option<&'static str> {
+    for branch in &["main", "master"] {
+        let url = format!("{}/{}/{}/{}", GITHUB_RAW_BASE, repo, branch, path);
+        if let Ok(resp) = client.head(&url).send().await {
+            if resp.status().is_success() {
+                return Some(branch);
+            }
+        }
+    }
+    None
+}
+
 async fn fetch_repo_skills_api(repo: &str, token: Option<&str>) -> Result<Vec<RemoteSkill>, String> {
     let url = format!("{}/{}/contents/skills", GITHUB_API_BASE, repo);
     let client = build_client(token);
@@ -911,20 +958,30 @@ async fn fetch_repo_skills_api(repo: &str, token: Option<&str>) -> Result<Vec<Re
         .await
         .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
 
+    // Use the actual default branch for the tree URL (raw check, no rate limit).
+    let branch = match items.first() {
+        Some(first) => {
+            let path = format!("skills/{}/SKILL.md", first.name);
+            skill_md_branch(&client, repo, &path).await.unwrap_or("main")
+        }
+        None => "main",
+    };
+
     let mut skills = Vec::new();
+    let lower = repo.to_lowercase();
     for item in items {
         if item.item_type != "dir" {
             continue;
         }
         skills.push(RemoteSkill {
-            id: format!("{}/{}", repo, item.name),
+            id: format!("{}/{}", lower, item.name),
             slug: item.name.clone(),
             name: item.name.clone(),
-            source: repo.to_string(),
+            source: lower.clone(),
             installs: 0,
             source_type: "github".to_string(),
             install_url: format!("https://github.com/{}", repo),
-            url: format!("https://github.com/{}/tree/main/skills/{}", repo, item.name),
+            url: format!("https://github.com/{}/tree/{}/skills/{}", repo, branch, item.name),
             is_duplicate: false,
             data_source: "github-api".to_string(),
             stars: None,
@@ -961,20 +1018,39 @@ async fn fetch_repo_skills_from_root_api(repo: &str, token: Option<&str>) -> Res
         .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
 
     let skip = [".github", ".gitignore", "bin", "src", "tests", "scripts", "spec", "template", "docs", "examples"];
-    let mut skills = Vec::new();
-    for item in items {
+
+    // Verify each dir actually ships a SKILL.md (concurrently via raw HEAD
+    // checks, no API rate limit); this filters out config folders (.claude/
+    // .vscode) and sub-collections, and detects the real default branch.
+    let mut set = tokio::task::JoinSet::new();
+    for item in &items {
         if item.item_type != "dir" || skip.contains(&item.name.as_str()) {
             continue;
         }
+        let client = client.clone();
+        let repo = repo.to_string();
+        let name = item.name.clone();
+        set.spawn(async move {
+            let branch = skill_md_branch(&client, &repo, &format!("{}/SKILL.md", name)).await;
+            (name, branch)
+        });
+    }
+
+    let mut skills = Vec::new();
+    let lower = repo.to_lowercase();
+    while let Some(res) = set.join_next().await {
+        let Ok((name, Some(branch))) = res else {
+            continue;
+        };
         skills.push(RemoteSkill {
-            id: format!("{}/{}", repo, item.name),
-            slug: item.name.clone(),
-            name: item.name.clone(),
-            source: repo.to_string(),
+            id: format!("{}/{}", lower, name),
+            slug: name.clone(),
+            name: name.clone(),
+            source: lower.clone(),
             installs: 0,
             source_type: "github".to_string(),
             install_url: format!("https://github.com/{}", repo),
-            url: format!("https://github.com/{}/tree/main/{}", repo, item.name),
+            url: format!("https://github.com/{}/tree/{}/{}", repo, branch, name),
             is_duplicate: false,
             data_source: "github-api".to_string(),
             stars: None,
@@ -1054,6 +1130,87 @@ pub(crate) async fn search_skills_via_skills_sh(client: &reqwest::Client, query:
     skills
 }
 
+/// Parse skills.sh's abbreviated install counts ("9.1K", "1.2M", "3").
+fn parse_abbreviated_installs(s: &str) -> u64 {
+    let t = s.trim();
+    if let Some(stripped) = t.strip_suffix('K') {
+        return (stripped.trim().parse::<f64>().unwrap_or(0.0) * 1000.0) as u64;
+    }
+    if let Some(stripped) = t.strip_suffix('M') {
+        return (stripped.trim().parse::<f64>().unwrap_or(0.0) * 1_000_000.0) as u64;
+    }
+    t.parse::<u64>().unwrap_or(0)
+}
+
+/// Extract the text of the first `<tag ...>` ... `</tag>` block after `from`.
+fn extract_row_text(html: &str, from: usize, tag: &str) -> Option<String> {
+    let open = format!("<{}", tag);
+    let open_rel = html[from..].find(&open)?;
+    let open_end = html[from + open_rel..].find('>')? + from + open_rel;
+    let close = format!("</{}>", tag);
+    let close_rel = html[open_end + 1..].find(&close)?;
+    Some(html[open_end + 1..open_end + 1 + close_rel].trim().to_string())
+}
+
+/// Scrape a skills.sh source page for its complete skill list. The page
+/// renders each skill as a row: `<a href="/{source}/{slug}">` with the name
+/// in an `<h3>` and the install count in a trailing `<span class="font-mono">`.
+/// The fuzzy search API only surfaces a fraction of a repo's skills (e.g.
+/// google/skills, microsoft/skills), so this page is the reliable source.
+async fn fetch_source_skills_via_page(client: &reqwest::Client, source: &str) -> Vec<RemoteSkill> {
+    let lower = source.to_lowercase();
+    let url = format!("https://skills.sh/{}", lower);
+    let resp = match client.get(&url).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Vec::new(),
+    };
+    let html = match resp.text().await {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+
+    let href_marker = format!("href=\"/{}/", lower);
+    let mut skills = Vec::new();
+    let mut search_from = 0;
+    while let Some(rel) = html[search_from..].find(&href_marker) {
+        let row_start = search_from + rel;
+        let slug_start = row_start + href_marker.len();
+        let slug_end = match html[slug_start..].find('"') {
+            Some(e) => slug_start + e,
+            None => break,
+        };
+        let slug = &html[slug_start..slug_end];
+        search_from = slug_end + 1;
+        if slug.is_empty() || slug.contains('/') {
+            continue;
+        }
+
+        let name = extract_row_text(&html, row_start, "h3").unwrap_or_else(|| slug.to_string());
+        let installs = extract_row_text(&html, row_start, "span")
+            .map(|s| parse_abbreviated_installs(&s))
+            .unwrap_or(0);
+
+        let id = format!("{}/{}", lower, slug);
+        skills.push(RemoteSkill {
+            id: id.clone(),
+            slug: slug.to_string(),
+            name,
+            source: lower.clone(),
+            installs,
+            source_type: "github".to_string(),
+            install_url: format!("https://github.com/{}", source),
+            url: format!("https://skills.sh/{}", id),
+            is_duplicate: false,
+            data_source: "skills-sh-page".to_string(),
+            stars: None,
+            repo_description: None,
+            updated_at: None,
+            license: None,
+        });
+    }
+    skills
+}
+
 async fn fetch_skills_via_skills_sh() -> Result<Vec<RemoteSkill>, String> {
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
@@ -1061,20 +1218,36 @@ async fn fetch_skills_via_skills_sh() -> Result<Vec<RemoteSkill>, String> {
         .build()
         .map_err(|e| format!("Failed to build client: {}", e))?;
 
-    // Broad queries for ecosystem coverage plus specific popular skill names
-    // so the homepage surfaces well-known skills with real install counts.
-    let queries = [
-        "ai", "web", "data", "code", "agent", "git", "cloud", "pdf", "doc", "video",
-        "react", "python", "postgres", "docker", "kubernetes", "notion", "slack",
-        "github", "linear", "figma", "excel", "word", "chrome", "supabase", "aws",
-    ];
-
-    // Run all queries in parallel: skills.sh can take ~5s per query, so a
-    // serial loop would blow the 15s overall budget in fetch_skills.
+    // Scrape each curated repo's skills.sh page for its complete skill list
+    // (the fuzzy search API only surfaces a fraction of a repo's skills), plus
+    // the search API as a supplement for any skills the page omits, plus a few
+    // broad terms for general community coverage. Keeping the request count low
+    // avoids skills.sh's 60 req/min rate limit.
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
     let mut handles = Vec::new();
-    for query in queries {
+
+    for repo in KNOWN_REPOS {
         let client = client.clone();
+        let sem = semaphore.clone();
+        let repo = repo.to_string();
         handles.push(tokio::spawn(async move {
+            let _permit = sem.acquire_owned().await.ok();
+            let mut result = fetch_source_skills_via_page(&client, &repo).await;
+            let mut seen: std::collections::HashSet<String> =
+                result.iter().map(|s| s.id.clone()).collect();
+            for skill in search_skills_via_skills_sh(&client, &repo).await {
+                if seen.insert(skill.id.clone()) {
+                    result.push(skill);
+                }
+            }
+            result
+        }));
+    }
+    for query in ["ai", "web", "data", "code", "design", "productivity"] {
+        let client = client.clone();
+        let sem = semaphore.clone();
+        handles.push(tokio::spawn(async move {
+            let _permit = sem.acquire_owned().await.ok();
             search_skills_via_skills_sh(&client, query).await
         }));
     }
@@ -1538,10 +1711,11 @@ async fn list_repo_skills_via_github(source: &str, token: Option<&str>) -> Resul
             continue;
         }
 
-        // Check via Raw if this dir has SKILL.md
-        let skill_md_url = format!("{}/{}/main/{}/SKILL.md", GITHUB_RAW_BASE, source, item.name);
-        let md_resp = client.head(&skill_md_url).send().await;
-        if matches!(md_resp, Ok(ref r) if r.status().is_success()) {
+        // Check via Raw if this dir has SKILL.md (try main and master branches)
+        if skill_md_branch(&client, source, &format!("{}/SKILL.md", item.name))
+            .await
+            .is_some()
+        {
             skills.push(RepoSkillInfo {
                 name: item.name.clone(),
                 description: Some("包含 SKILL.md".to_string()),
@@ -1559,10 +1733,11 @@ async fn list_repo_skills_via_github(source: &str, token: Option<&str>) -> Resul
     Ok(skills)
 }
 
-/// Normalize GitHub source: extract owner/repo from full URL or clean up
+/// Normalize GitHub source: extract owner/repo from full URL or clean up.
+/// Lowercased so cache keys and lookups match regardless of input case.
 fn normalize_github_source(source: &str) -> String {
     let trimmed = source.trim();
-    if trimmed.starts_with("https://github.com/") {
+    let cleaned = if trimmed.starts_with("https://github.com/") {
         trimmed
             .replace("https://github.com/", "")
             .trim_end_matches('/')
@@ -1579,7 +1754,8 @@ fn normalize_github_source(source: &str) -> String {
             .to_string()
     } else {
         trimmed.trim_end_matches('/').to_string()
-    }
+    };
+    cleaned.to_lowercase()
 }
 
 #[allow(dead_code)]
