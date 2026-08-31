@@ -93,6 +93,29 @@ fn build_client(token: Option<&str>) -> reqwest::Client {
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
+/// Reuse one reqwest::Client per token so DNS/TCP/TLS handshakes and HTTP/2
+/// connections are pooled across every fetch instead of re-established on each
+/// call. A separate client is kept for each distinct token (empty = anonymous).
+fn global_client(token: Option<&str>) -> reqwest::Client {
+    use std::sync::{OnceLock, RwLock};
+    static POOL: OnceLock<RwLock<Vec<(String, reqwest::Client)>>> = OnceLock::new();
+    let key = token.unwrap_or("").to_string();
+    let pool = POOL.get_or_init(|| RwLock::new(Vec::new()));
+    {
+        let guard = pool.read().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, c)) = guard.iter().find(|(k, _)| *k == key) {
+            return c.clone();
+        }
+    }
+    let client = build_client(token);
+    let mut guard = pool.write().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, c)) = guard.iter().find(|(k, _)| *k == key) {
+        return c.clone();
+    }
+    guard.push((key, client.clone()));
+    client
+}
+
 /// Check if a response indicates rate limiting and return a friendly error.
 fn check_rate_limit(resp: &reqwest::Response, token: Option<&str>) -> Option<String> {
     if resp.status() == 403 {
@@ -183,9 +206,27 @@ fn read_cache() -> Option<Vec<RemoteSkill>> {
     Some(cached.skills)
 }
 
+/// Whether a valid cache exists and is still fresh (used by the stale-while-
+/// revalidate path in main.rs to decide whether a background refresh is due).
+pub(crate) fn cache_is_fresh() -> bool {
+    let path = cache_path();
+    if !path.exists() { return false; }
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let cached: CachedSkills = match serde_json::from_str(&content) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    if cached.version != CACHE_VERSION { return false; }
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64).unwrap_or(0);
+    now - cached.timestamp <= CACHE_DURATION_SECS as i64
+}
+
 /// Read the cache regardless of freshness. Used as a fallback when a fresh
 /// fetch comes up short (e.g. GitHub API rate limit) so the list never blanks.
-fn read_cache_allow_stale() -> Option<Vec<RemoteSkill>> {
+pub(crate) fn read_cache_allow_stale() -> Option<Vec<RemoteSkill>> {
     let path = cache_path();
     if !path.exists() { return None; }
     let content = fs::read_to_string(&path).ok()?;
@@ -194,7 +235,7 @@ fn read_cache_allow_stale() -> Option<Vec<RemoteSkill>> {
     Some(cached.skills)
 }
 
-fn write_cache(skills: &[RemoteSkill]) -> Result<(), String> {
+pub(crate) fn write_cache(skills: &[RemoteSkill]) -> Result<(), String> {
     let path = cache_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create cache dir: {}", e))?;
@@ -206,6 +247,92 @@ fn write_cache(skills: &[RemoteSkill]) -> Result<(), String> {
     };
     let json = serde_json::to_string_pretty(&cached).map_err(|e| format!("Failed to serialize cache: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("Failed to write cache: {}", e))
+}
+
+// ─── Trending snapshot ────────────────────────────────────────────────────
+// Tracks install counts and first-seen time per skill so the "trending" view
+// ranks by real growth (installs delta / elapsed time) plus recency instead of
+// reshuffling the whole list on every refresh.
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct SkillSnapshot {
+    installs: u64,
+    first_seen_at: i64, // unix seconds
+    last_seen_at: i64,
+}
+
+fn snapshot_path() -> PathBuf {
+    let data_dir = dirs::data_dir().unwrap_or_default();
+    data_dir.join("trae-skill-manager").join("skills_snapshot.json")
+}
+
+fn read_snapshot() -> std::collections::HashMap<String, SkillSnapshot> {
+    let path = snapshot_path();
+    if !path.exists() { return std::collections::HashMap::new(); }
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_default()
+}
+
+fn write_snapshot(snapshot: &std::collections::HashMap<String, SkillSnapshot>) {
+    let path = snapshot_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(snapshot) {
+        let _ = fs::write(&path, json);
+    }
+}
+
+/// Rank skills for the trending view using the previous snapshot: new skills
+/// get a boost, install deltas are converted to a daily growth rate, and
+/// recently-pushed repos rank higher. Falls back to installs when no snapshot
+/// exists yet (first run).
+fn sort_trending(skills: &mut Vec<RemoteSkill>) {
+    use std::cmp::Ordering;
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+    let prev = read_snapshot();
+
+    let mut scored: Vec<(f64, RemoteSkill)> = Vec::with_capacity(skills.len());
+    for skill in skills.drain(..) {
+        let mut score = 0.0f64;
+        match prev.get(&skill.id) {
+            Some(p) => {
+                let delta = skill.installs.saturating_sub(p.installs) as f64;
+                let elapsed_h = ((now - p.last_seen_at).max(3600)) as f64 / 3600.0;
+                let growth = delta / elapsed_h;
+                score += growth * 10.0;
+            }
+            None => {
+                // Newly seen skill: strong boost so fresh additions surface.
+                score += 100.0;
+            }
+        }
+        // Recency: recently-pushed repos rank higher (updated_at is unix ms).
+        if let Some(updated_ms) = skill.updated_at {
+            let age_days = ((now - updated_ms / 1000).max(0)) as f64 / 86400.0;
+            score += (1.0 / (1.0 + age_days)) * 50.0;
+        }
+        // Baseline installs (log-scaled so big numbers don't dominate).
+        score += (skill.installs as f64).ln_1p() * 5.0;
+        scored.push((score, skill));
+    }
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
+    skills.extend(scored.into_iter().map(|(_, s)| s));
+
+    // Persist the new snapshot for the next ranking pass.
+    let mut next: std::collections::HashMap<String, SkillSnapshot> = std::collections::HashMap::new();
+    for s in skills.iter() {
+        let entry = next.entry(s.id.clone()).or_insert(SkillSnapshot {
+            installs: 0,
+            first_seen_at: now,
+            last_seen_at: now,
+        });
+        entry.installs = s.installs;
+        entry.last_seen_at = now;
+    }
+    write_snapshot(&next);
 }
 
 // ─── Built-in fallback skills ─────────────────────────────────────────────
@@ -617,121 +744,112 @@ fn get_built_in_skills() -> Vec<RemoteSkill> {
 
 // ─── Main fetch: combine GitHub Raw + GitHub API + skills.sh API + built-in ─
 
+/// Fetch every known source (GitHub repos + skills.sh) and merge the results
+/// into a single deduplicated list. Exposed so main.rs can run this in the
+/// background for stale-while-revalidate without blocking the first paint.
+pub(crate) async fn fetch_all_sources(token: Option<&str>) -> Vec<RemoteSkill> {
+    let mut merged = Vec::new();
+
+    // Fetch the 14 GitHub repos concurrently with a cap of 6 in flight so a
+    // slow/rate-limited repo doesn't stall the rest or hammer the API.
+    let token_for_api = token.map(|s| s.to_string());
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(6));
+    let mut set = tokio::task::JoinSet::new();
+    for repo in KNOWN_REPOS {
+        let sem = sem.clone();
+        let repo = repo.to_string();
+        let token = token_for_api.clone();
+        set.spawn(async move {
+            let _permit = sem.acquire_owned().await.ok();
+            fetch_repo_skills_api(&repo, token.as_deref()).await
+        });
+    }
+    while let Some(res) = set.join_next().await {
+        match res {
+            Ok(Ok(s)) => merged.extend(s),
+            Ok(Err(e)) => eprintln!("Warning: API fetch failed: {}", e),
+            Err(e) => eprintln!("Warning: API fetch task failed: {}", e),
+        }
+    }
+
+    // skills.sh leaderboard (real install counts).
+    let npx_results = match fetch_skills_via_skills_sh().await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Warning: skills.sh fetch failed: {}", e);
+            Vec::new()
+        }
+    };
+
+    // Merge with deduplication by id. skills.sh results first so real install
+    // counts win over the GitHub API's installs: 0.
+    let mut seen = std::collections::HashSet::new();
+    let mut merged_all = Vec::with_capacity(npx_results.len() + merged.len());
+    for skill in npx_results {
+        if seen.insert(skill.id.clone()) {
+            merged_all.push(skill);
+        }
+    }
+    for skill in merged {
+        if seen.insert(skill.id.clone()) {
+            merged_all.push(skill);
+        }
+    }
+    merged = merged_all;
+
+    // If the fresh fetch came up short (e.g. GitHub API rate limit), merge the
+    // stale cache so previously-seen skills don't vanish.
+    if let Some(stale) = read_cache_allow_stale() {
+        for skill in stale {
+            if seen.insert(skill.id.clone()) {
+                merged.push(skill);
+            }
+        }
+    }
+
+    // Final fallback: built-in skills list if nothing found.
+    if merged.is_empty() {
+        merged = get_built_in_skills();
+    }
+
+    let _ = write_cache(&merged);
+    merged
+}
+
+/// Sort a skill list according to the requested view. Shared by the blocking
+/// fetch path and the stale-while-revalidate path in main.rs.
+pub(crate) fn sort_skills(mut skills: Vec<RemoteSkill>, view: Option<&str>) -> Vec<RemoteSkill> {
+    match view {
+        Some("trending") => sort_trending(&mut skills),
+        Some("browse") => {
+            skills.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        }
+        _ => {
+            skills.sort_by(|a, b| b.installs.cmp(&a.installs).then_with(|| a.name.cmp(&b.name)));
+        }
+    }
+    skills
+}
+
 pub async fn fetch_skills(
     view: Option<String>,
     _page: Option<u32>,
     _per_page: Option<u32>,
     token: Option<&str>,
 ) -> Result<ApiResponse<Vec<RemoteSkill>>, String> {
-    // Try cache first: cache stores the merged raw data, then we sort by view on read
+    // Try cache first: cache stores the merged raw data, then we sort by view on read.
     let token_owned = token.map(|s| s.to_string());
     let mut all_skills = if let Some(cached) = read_cache() {
         cached
     } else {
-        let mut merged = Vec::new();
-
-        // Run all sources in parallel for maximum coverage and speed
-        // Each source has its own timeout via the HTTP client
-        let token_for_api = token_owned.clone();
-        let api_fut = async move {
-            let mut skills = Vec::new();
-            for repo in KNOWN_REPOS {
-                match fetch_repo_skills_api(repo, token_for_api.as_deref()).await {
-                    Ok(s) => skills.extend(s),
-                    Err(e) => eprintln!("Warning: API fetch failed for {}: {}", repo, e),
-                }
-            }
-            skills
-        };
-
-        let npx_fut = async {
-            match fetch_skills_via_skills_sh().await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("Warning: skills.sh fetch failed: {}", e);
-                    Vec::new()
-                }
-            }
-        };
-
-        // Run all sources in parallel with an overall timeout of 60 seconds.
-        // Use individual futures so a timeout still preserves partial results.
-        let api_handle = tokio::spawn(api_fut);
-        let npx_handle = tokio::spawn(npx_fut);
-
-        let api_results = match tokio::time::timeout(
-            std::time::Duration::from_secs(60),
-            api_handle
-        ).await {
-            Ok(Ok(results)) => results,
-            Ok(Err(e)) => { eprintln!("Warning: API fetch task failed: {}", e); Vec::new() }
-            Err(_) => { eprintln!("Warning: API fetch timeout"); Vec::new() }
-        };
-        let npx_results = match tokio::time::timeout(
-            std::time::Duration::from_secs(15),
-            npx_handle
-        ).await {
-            Ok(Ok(results)) => results,
-            Ok(Err(e)) => { eprintln!("Warning: npx fetch task failed: {}", e); Vec::new() }
-            Err(_) => { eprintln!("Warning: npx fetch timeout"); Vec::new() }
-        };
-
-        // Merge all results with deduplication by id. skills.sh results first
-        // so real install counts win over the GitHub API's installs: 0.
-        let mut seen = std::collections::HashSet::new();
-        for skill in npx_results.into_iter().chain(api_results) {
-            if seen.insert(skill.id.clone()) {
-                merged.push(skill);
-            }
-        }
-
-        // If the fresh fetch came up short (e.g. GitHub API rate limit), merge
-        // the stale cache so previously-seen skills don't vanish.
-        if let Some(stale) = read_cache_allow_stale() {
-            for skill in stale {
-                if seen.insert(skill.id.clone()) {
-                    merged.push(skill);
-                }
-            }
-        }
-
-        // Final fallback: built-in skills list if nothing found
-        if merged.is_empty() {
-            merged = get_built_in_skills();
-        }
-
-        // Write cache (raw unsorted data)
-        let _ = write_cache(&merged);
-
-        merged
+        fetch_all_sources(token_owned.as_deref()).await
     };
 
     // Enrich skills with their GitHub repo descriptions (cached, limited to
     // the most popular repos to stay within API rate limits).
     enrich_repo_descriptions(&mut all_skills, token_owned.as_deref()).await;
 
-    // Sort differently based on view (always applied, even on cached data)
-    match view.as_deref() {
-        Some("trending") => {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let seed = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let mut rng = seed;
-            for i in (1..all_skills.len()).rev() {
-                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                let j = (rng as usize) % (i + 1);
-                all_skills.swap(i, j);
-            }
-        }
-        Some("browse") => {
-            all_skills.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        }
-        _ => {
-            all_skills.sort_by(|a, b| b.installs.cmp(&a.installs).then_with(|| a.name.cmp(&b.name)));
-        }
-    }
+    let all_skills = sort_skills(all_skills, view.as_deref());
 
     let total = all_skills.len() as u32;
     Ok(ApiResponse {
@@ -748,7 +866,7 @@ pub async fn fetch_skills(
 /// Attach each skill's GitHub repository description (if known) so the card
 /// can show a short one-line intro. Uses the cached repo-info store and only
 /// fetches the most popular repos to respect API rate limits.
-async fn enrich_repo_descriptions(skills: &mut Vec<RemoteSkill>, token: Option<&str>) {
+pub(crate) async fn enrich_repo_descriptions(skills: &mut Vec<RemoteSkill>, token: Option<&str>) {
     let mut source_installs: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     for s in skills.iter() {
         if is_github_source(&s.source) {
@@ -809,7 +927,7 @@ fn iso_to_unix_ms(iso: &str) -> Option<i64> {
 
 /// Fetch a GitHub repo's README or SKILL.md content for community skill preview.
 pub async fn fetch_github_repo_readme(repo_full_name: &str, token: Option<&str>) -> Result<String, String> {
-    let client = build_client(token);
+    let client = global_client(token);
 
     // Try SKILL.md first (most relevant for skills)
     for branch in &["main", "master"] {
@@ -846,7 +964,7 @@ pub async fn fetch_github_repo_readme(repo_full_name: &str, token: Option<&str>)
 
 /// Fetch only README.md from a GitHub repo root (for docs tab toggle).
 pub async fn fetch_github_readme_only(repo_full_name: &str, token: Option<&str>) -> Result<String, String> {
-    let client = build_client(token);
+    let client = global_client(token);
 
     for branch in &["main", "master"] {
         for readme_name in &["README.md", "readme.md", "Readme.md"] {
@@ -868,7 +986,7 @@ pub async fn fetch_github_readme_only(repo_full_name: &str, token: Option<&str>)
 
 /// Fetch only SKILL.md from a GitHub repo root (for docs tab toggle).
 pub async fn fetch_github_skill_md_root(repo_full_name: &str, token: Option<&str>) -> Result<String, String> {
-    let client = build_client(token);
+    let client = global_client(token);
 
     for branch in &["main", "master"] {
         let skill_md_url = format!("{}/{}/{}/SKILL.md", GITHUB_RAW_BASE, repo_full_name, branch);
@@ -888,7 +1006,7 @@ pub async fn fetch_github_skill_md_root(repo_full_name: &str, token: Option<&str
 
 /// Fetch a specific SKILL.md from a subdirectory of a GitHub repo.
 pub async fn fetch_github_skill_md(repo_full_name: &str, skill_path: &str, token: Option<&str>) -> Result<String, String> {
-    let client = build_client(token);
+    let client = global_client(token);
 
     // skill_path could be "skills/web-search" or just "web-search"
     let full_path = if skill_path.contains("SKILL.md") {
@@ -932,7 +1050,7 @@ async fn skill_md_branch(client: &reqwest::Client, repo: &str, path: &str) -> Op
 
 async fn fetch_repo_skills_api(repo: &str, token: Option<&str>) -> Result<Vec<RemoteSkill>, String> {
     let url = format!("{}/{}/contents/skills", GITHUB_API_BASE, repo);
-    let client = build_client(token);
+    let client = global_client(token);
 
     let resp = client
         .get(&url)
@@ -996,7 +1114,7 @@ async fn fetch_repo_skills_api(repo: &str, token: Option<&str>) -> Result<Vec<Re
 
 async fn fetch_repo_skills_from_root_api(repo: &str, token: Option<&str>) -> Result<Vec<RemoteSkill>, String> {
     let url = format!("{}/{}/contents/", GITHUB_API_BASE, repo);
-    let client = build_client(token);
+    let client = global_client(token);
 
     let resp = client
         .get(&url)
@@ -1468,7 +1586,7 @@ pub async fn fetch_skill_detail(
     token: Option<&str>,
 ) -> Result<SkillDetail, String> {
     let mut files = Vec::new();
-    let client = build_client(token);
+    let client = global_client(token);
 
     // Try skills/ subdirectory first
     let url = format!("{}/{}/contents/skills/{}", GITHUB_API_BASE, source, slug);
@@ -1654,7 +1772,7 @@ async fn list_repo_skills_via_npx(source: &str) -> Result<Vec<RepoSkillInfo>, St
 
 /// Fallback: scan repo via GitHub API + Raw
 async fn list_repo_skills_via_github(source: &str, token: Option<&str>) -> Result<Vec<RepoSkillInfo>, String> {
-    let client = build_client(token);
+    let client = global_client(token);
 
     // Check if SKILL.md exists at root (via Raw, no rate limit)
     let root_url = format!("{}/{}/main/SKILL.md", GITHUB_RAW_BASE, source);
@@ -1888,7 +2006,7 @@ pub async fn fetch_github_repo_info(
         }
     }
 
-    let client = build_client(token);
+    let client = global_client(token);
     let url = format!("{}/{}", GITHUB_API_BASE, &normalized);
 
     let resp = client
@@ -1955,7 +2073,7 @@ pub async fn fetch_github_repo_info(
 
 /// Test if a GitHub token is valid by making a simple API call.
 pub async fn test_github_token(token: &str) -> Result<(), String> {
-    let client = build_client(Some(token));
+    let client = global_client(Some(token));
     let url = "https://api.github.com/user";
 
     let resp = client
@@ -1984,7 +2102,7 @@ pub struct GithubRateLimit {
 }
 
 pub async fn get_github_rate_limit(token: Option<&str>) -> Result<GithubRateLimit, String> {
-    let client = build_client(token);
+    let client = global_client(token);
     let url = "https://api.github.com/rate_limit";
     let resp = client
         .get(url)
@@ -2035,7 +2153,7 @@ pub async fn fetch_github_repos_info_batch(
 
     // Fetch remaining ones sequentially to avoid rate limiting
     // Limit concurrent requests to be kind to the API
-    let client = build_client(token);
+    let client = global_client(token);
     let mut new_cache_entries: HashMap<String, CachedRepoInfo> = HashMap::new();
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

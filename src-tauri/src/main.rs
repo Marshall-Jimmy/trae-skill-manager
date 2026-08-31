@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+#[cfg(debug_assertions)]
 mod debug_server;
 mod models;
 mod utils;
@@ -9,7 +10,7 @@ use models::*;
 use std::path::PathBuf;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Set the window's big (taskbar) icon from a high-res PNG so the taskbar
 /// renders crisply instead of upscaling the 16x16 small icon.
@@ -81,10 +82,64 @@ fn get_github_token() -> String {
     String::new()
 }
 
+/// Guards the stale-while-revalidate background refresh so repeated fetch
+/// calls while the cache is stale don't spawn a pile of concurrent refreshes.
+static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[tauri::command(rename_all = "camelCase")]
-async fn fetch_skills(view: Option<String>, page: Option<u32>, per_page: Option<u32>) -> Result<ApiResponse<Vec<RemoteSkill>>, String> {
+async fn fetch_skills(
+    app: tauri::AppHandle,
+    view: Option<String>,
+    _page: Option<u32>,
+    _per_page: Option<u32>,
+) -> Result<ApiResponse<Vec<RemoteSkill>>, String> {
     let token = get_github_token();
-    commands::fetch::fetch_skills(view, page, per_page, if token.is_empty() { None } else { Some(&token) }).await
+    let token_opt: Option<String> = if token.is_empty() { None } else { Some(token) };
+
+    // stale-while-revalidate: serve whatever cache exists immediately so the
+    // first paint never blocks on the network, then refresh in the background.
+    if let Some(cached) = commands::fetch::read_cache_allow_stale() {
+        if !commands::fetch::cache_is_fresh() && !REFRESHING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let app2 = app.clone();
+            let token2 = token_opt.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut skills = commands::fetch::fetch_all_sources(token2.as_deref()).await;
+                commands::fetch::enrich_repo_descriptions(&mut skills, token2.as_deref()).await;
+                // Emit trending-sorted: every non-trending tab re-sorts/filters
+                // client-side, so this order is only authoritative for the
+                // 趋势 tab (which keeps the backend ranking).
+                let skills = commands::fetch::sort_skills(skills, Some("trending"));
+                let _ = app2.emit("skills-refreshed", serde_json::json!({ "skills": skills }));
+                REFRESHING.store(false, std::sync::atomic::Ordering::SeqCst);
+            });
+        }
+        let all_skills = commands::fetch::sort_skills(cached, view.as_deref());
+        let total = all_skills.len() as u32;
+        return Ok(ApiResponse {
+            data: all_skills,
+            pagination: Some(Pagination {
+                page: 0,
+                per_page: total,
+                total,
+                has_more: false,
+            }),
+        });
+    }
+
+    // No cache at all: blocking first fetch.
+    let mut all_skills = commands::fetch::fetch_all_sources(token_opt.as_deref()).await;
+    commands::fetch::enrich_repo_descriptions(&mut all_skills, token_opt.as_deref()).await;
+    let all_skills = commands::fetch::sort_skills(all_skills, view.as_deref());
+    let total = all_skills.len() as u32;
+    Ok(ApiResponse {
+        data: all_skills,
+        pagination: Some(Pagination {
+            page: 0,
+            per_page: total,
+            total,
+            has_more: false,
+        }),
+    })
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -411,10 +466,15 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                debug_server::start(handle).await;
-            });
+            // Debug HTTP server is dev-only: exposing a local port in a release
+            // build would let any local process drive the app.
+            #[cfg(debug_assertions)]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    debug_server::start(handle).await;
+                });
+            }
 
             // ─── Window icon: high-res source so the taskbar renders crisply ──
             if let Some(window) = app.get_webview_window("main") {

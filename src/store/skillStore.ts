@@ -1461,9 +1461,10 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
       skills = skills.filter((skill) => skill.stars !== undefined && skill.stars > 0);
     }
 
-    // Sort. The 最近更新 tab defines its own canonical order, so the generic
-    // sortBy must not override it.
-    if (discoverTab !== 'recent') {
+    // Sort. The 最近更新 and 趋势 tabs define their own canonical order (the
+    // backend ranks trending by growth/recency), so the generic sortBy must not
+    // override them.
+    if (discoverTab !== 'recent' && discoverTab !== 'trending') {
       if (sortBy === 'installs') {
         skills.sort((a, b) => b.installs - a.installs);
       } else if (sortBy === 'stars') {

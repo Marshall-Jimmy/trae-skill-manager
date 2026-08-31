@@ -56,3 +56,6 @@ click_overflow.ps1
 crop_tray.mjs
 extract-topics*.cjs
 screenshot-app.ps1
+
+# Local toolchain installer (12.8MB, accidentally committed)
+rustup-init.exe

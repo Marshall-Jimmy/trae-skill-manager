@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Sidebar, type TabId } from './components/Sidebar';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { TitleBar } from './components/TitleBar';
@@ -9,6 +10,7 @@ import { useSkillStore } from './store/skillStore';
 import { useMcpStore } from './store/mcpStore';
 import { useMotionConfig } from './lib/motionConfig';
 import { windowEntry } from './lib/animations';
+import type { RemoteSkill } from './types';
 import { RefreshCw, Copy, ClipboardPaste, ScanText, Settings, Info, LogOut } from 'lucide-react';
 
 // Route-level code splitting: each page loads on first visit, shrinking the
@@ -292,6 +294,33 @@ function App() {
     window.addEventListener('open-custom-install', handleOpenCustomInstall);
     return () => {
       window.removeEventListener('open-custom-install', handleOpenCustomInstall);
+    };
+  }, []);
+
+  // stale-while-revalidate: the backend serves cached skills instantly and
+  // refreshes in the background, then pushes the fresh list here. Replace the
+  // arrays in place so the user's scroll position is preserved.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let cancelled = false;
+    listen<{ skills: RemoteSkill[] }>('skills-refreshed', (event) => {
+      const { activeView, discoverTab } = useSkillStore.getState();
+      useSkillStore.setState({
+        remoteSkills: event.payload.skills,
+        trendingSkills:
+          discoverTab === 'trending' || activeView === 'trending'
+            ? event.payload.skills
+            : useSkillStore.getState().trendingSkills,
+      });
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
     };
   }, []);
 

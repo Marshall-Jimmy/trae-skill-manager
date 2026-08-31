@@ -535,8 +535,16 @@ export function DiscoverPage({
   const handleDiscoverTabChange = useCallback(
     (tab: DiscoverTab) => {
       setDiscoverTab(tab);
+      // The 趋势 tab has its own backend ranking (growth/recency) stored in
+      // trendingSkills, so switching to it must load that view; the other tabs
+      // derive from the already-loaded remoteSkills list.
+      if (tab === 'trending') {
+        loadRemoteSkills('trending');
+      } else if (tab === 'all') {
+        loadRemoteSkills('all-time');
+      }
     },
-    [setDiscoverTab]
+    [setDiscoverTab, loadRemoteSkills]
   );
 
   const handleInstall = useCallback(
@@ -912,7 +920,7 @@ export function DiscoverPage({
             )}
 
             {/* Sort dropdown (hidden on tabs with fixed canonical order) */}
-            {discoverTab !== 'recent' && (
+            {discoverTab !== 'recent' && discoverTab !== 'trending' && (
               <SortDropdown value={sortBy} onChange={setSortBy} />
             )}
 
