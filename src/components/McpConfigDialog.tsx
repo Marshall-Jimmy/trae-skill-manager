@@ -336,13 +336,14 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
           />
 
           {/* Dialog */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 24 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[560px] max-w-[90vw] max-h-[85vh] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard-lg overflow-hidden flex flex-col"
-          >
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 24 }}
+              className="pointer-events-auto w-[560px] max-w-[90vw] max-h-[85vh] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard-lg overflow-hidden flex flex-col"
+            >
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-trae-border shrink-0">
               <div className="flex items-center gap-3">
@@ -717,6 +718,7 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
               )}
             </div>
           </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>

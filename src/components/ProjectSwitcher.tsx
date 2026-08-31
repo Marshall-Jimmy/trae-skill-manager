@@ -211,12 +211,13 @@ export function ProjectSwitcher() {
               className="fixed inset-0 z-50 bg-black/40"
               onClick={() => !addingProject && setShowAddDialog(false)}
             />
+            <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               transition={springMedium}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-96 max-w-[90vw] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard overflow-hidden"
+              className="pointer-events-auto w-96 max-w-[90vw] bg-trae-sidebar border border-trae-border rounded-xl shadow-hard overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 py-4 border-b border-trae-border">
                 <h3 className="text-trae-text font-semibold text-base">
@@ -268,6 +269,7 @@ export function ProjectSwitcher() {
                 </motion.button>
               </div>
             </motion.div>
+            </div>
           </>
         )}
       </AnimatePresence>

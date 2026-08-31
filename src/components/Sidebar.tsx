@@ -171,7 +171,7 @@ export function Sidebar({ activeTab, onTabChange, onCustomInstall }: SidebarProp
   const showCategories = activeTab === 'discover' && searchMode === 'official';
 
   return (
-    <aside className="w-60 h-screen bg-trae-sidebar border-r border-trae-border flex flex-col p-4 shadow-hard overflow-x-hidden">
+    <aside className="w-60 h-full bg-trae-sidebar border-r border-trae-border flex flex-col p-4 shadow-hard overflow-x-hidden">
       {/* Logo */}
       <motion.div
         initial={{ opacity: 0, x: -10 }}

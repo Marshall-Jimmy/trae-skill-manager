@@ -2,10 +2,14 @@ import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar, type TabId } from './components/Sidebar';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
+import { TitleBar } from './components/TitleBar';
+import { ContextMenu, type ContextMenuItem } from './components/ContextMenu';
+import { AboutDialog } from './components/AboutDialog';
 import { useSkillStore } from './store/skillStore';
 import { useMcpStore } from './store/mcpStore';
 import { useMotionConfig } from './lib/motionConfig';
 import { windowEntry } from './lib/animations';
+import { RefreshCw, Copy, ClipboardPaste, ScanText, Settings, Info, LogOut } from 'lucide-react';
 
 // Route-level code splitting: each page loads on first visit, shrinking the
 // initial bundle so cold start reaches interactive faster.
@@ -42,8 +46,101 @@ function PageFallback() {
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>(loadActiveTab);
   const [showCustomInstall, setShowCustomInstall] = useState(false);
+  const [menuState, setMenuState] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
+  const [showAbout, setShowAbout] = useState(false);
   const { getTransition } = useMotionConfig();
   const pageTransition = getTransition('medium');
+
+  const closeContextMenu = useCallback(() => setMenuState(null), []);
+
+  const buildContextMenu = useCallback(
+    (): ContextMenuItem[] => [
+      {
+        id: 'reload',
+        label: '刷新',
+        icon: RefreshCw,
+        onClick: () => window.location.reload(),
+      },
+      {
+        id: 'copy',
+        label: '复制',
+        icon: Copy,
+        onClick: () => {
+          const sel = window.getSelection()?.toString();
+          if (sel) {
+            navigator.clipboard.writeText(sel).catch(() => {});
+          } else {
+            const el = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
+            if (el && typeof el.value === 'string') {
+              navigator.clipboard.writeText(el.value).catch(() => {});
+            }
+          }
+        },
+      },
+      {
+        id: 'paste',
+        label: '粘贴',
+        icon: ClipboardPaste,
+        onClick: () => {
+          const el = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
+          if (!el || typeof el.value !== 'string') return;
+          navigator.clipboard
+            .readText()
+            .then((text) => {
+              const start = el.selectionStart ?? el.value.length;
+              const end = el.selectionEnd ?? el.value.length;
+              el.value = el.value.slice(0, start) + text + el.value.slice(end);
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+            })
+            .catch(() => {});
+        },
+      },
+      {
+        id: 'select-all',
+        label: '全选',
+        icon: ScanText,
+        onClick: () => {
+          const el = document.activeElement as HTMLInputElement | HTMLTextAreaElement | null;
+          if (el && typeof el.select === 'function') el.select();
+          else document.execCommand('selectAll');
+        },
+      },
+      { id: 'sep-1', label: '', separator: true, onClick: () => {} },
+      {
+        id: 'settings',
+        label: '设置',
+        icon: Settings,
+        onClick: () => setActiveTab('settings'),
+      },
+      {
+        id: 'about',
+        label: '关于',
+        icon: Info,
+        onClick: () => setShowAbout(true),
+      },
+      { id: 'sep-2', label: '', separator: true, onClick: () => {} },
+      {
+        id: 'exit',
+        label: '退出',
+        icon: LogOut,
+        danger: true,
+        onClick: () => {
+          import('@tauri-apps/api/window')
+            .then(({ getCurrentWindow }) => getCurrentWindow().close())
+            .catch(() => {});
+        },
+      },
+    ],
+    [],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setMenuState({ x: e.clientX, y: e.clientY, items: buildContextMenu() });
+    },
+    [buildContextMenu],
+  );
 
   // Persist the active page so the app reopens on the same tab.
   useEffect(() => {
@@ -198,7 +295,13 @@ function App() {
   }, []);
 
   return (
-    <motion.div {...windowEntry} className="h-screen w-screen flex overflow-hidden">
+    <motion.div
+      {...windowEntry}
+      className="h-screen w-screen flex flex-col overflow-hidden"
+      onContextMenu={handleContextMenu}
+    >
+      <TitleBar />
+      <div className="flex flex-1 overflow-hidden">
       <Sidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -297,6 +400,19 @@ function App() {
         </AnimatePresence>
         </div>
       </main>
+      </div>
+
+      <AnimatePresence>
+        {menuState && (
+          <ContextMenu
+            x={menuState.x}
+            y={menuState.y}
+            items={menuState.items}
+            onClose={closeContextMenu}
+          />
+        )}
+      </AnimatePresence>
+      <AboutDialog open={showAbout} onClose={() => setShowAbout(false)} />
     </motion.div>
   );
 }
