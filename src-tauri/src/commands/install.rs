@@ -94,6 +94,41 @@ fn report_frontmatter_issues(app: &tauri::AppHandle, dest: &Path) {
     }
 }
 
+/// 判断目标是否为 .agents/skills 通用目录（Phase 5.1）。
+fn is_agents_skills_path(path: &Path) -> bool {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_lowercase() == "skills")
+        .unwrap_or(false)
+        && path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy() == ".agents")
+            .unwrap_or(false)
+}
+
+/// 安装到 .agents/skills 时把 SKILL.md 标准化为 agentskills.io 通用格式，
+/// 剥离厂商特有 frontmatter，保证跨工具可读。
+fn standardize_if_agents_dir(app: &tauri::AppHandle, skills_path: &Path, dest: &Path) {
+    if !is_agents_skills_path(skills_path) {
+        return;
+    }
+    let skill_md = dest.join("SKILL.md");
+    let Ok(content) = std::fs::read_to_string(&skill_md) else {
+        return;
+    };
+    let standardized = crate::tools::frontmatter::standardize_skill_md(&content);
+    if standardized != content {
+        if std::fs::write(&skill_md, standardized).is_ok() {
+            emit(
+                app,
+                InstallOutputEvent::Stdout {
+                    data: "已标准化 SKILL.md（.agents/skills 通用格式）".to_string(),
+                },
+            );
+        }
+    }
+}
+
 // ─── Find skill directory in repo ─────────────────────────────────────────
 
 /// Find the skill subdirectory within a cloned repo.
@@ -373,6 +408,8 @@ pub async fn install_skill_streamed(
             let _ = crate::commands::scan::write_manifest(&dest, &manifest);
             let _ = tool.post_install(&dest);
 
+            standardize_if_agents_dir(&app, &skills_path, &dest);
+
             let result = build_install_result(
                 true,
                 skill_name,
@@ -451,6 +488,8 @@ pub async fn install_skill_streamed(
             };
             let _ = crate::commands::scan::write_manifest(&dest, &manifest);
             let _ = tool.post_install(&dest);
+
+            standardize_if_agents_dir(&app, &skills_path, &dest);
 
             let result = build_install_result(
                 true,

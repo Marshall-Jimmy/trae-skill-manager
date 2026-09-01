@@ -19,12 +19,13 @@ import { RefreshCw, Copy, ClipboardPaste, ScanText, Settings, Info, LogOut } fro
 // initial bundle so cold start reaches interactive faster.
 const DiscoverPage = lazy(() => import('./components/DiscoverPage').then((m) => ({ default: m.DiscoverPage })));
 const InstalledPage = lazy(() => import('./components/InstalledPage').then((m) => ({ default: m.InstalledPage })));
+const SyncPage = lazy(() => import('./components/SyncPage').then((m) => ({ default: m.SyncPage })));
 const McpPage = lazy(() => import('./components/McpPage').then((m) => ({ default: m.McpPage })));
 const HistoryPage = lazy(() => import('./components/HistoryPage').then((m) => ({ default: m.HistoryPage })));
 const SettingsPage = lazy(() => import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
 const SESSION_KEY = 'trae-skill-manager-session';
-const VALID_TABS: TabId[] = ['discover', 'installed', 'mcp', 'history', 'settings'];
+const VALID_TABS: TabId[] = ['discover', 'installed', 'sync', 'mcp', 'history', 'settings'];
 
 function loadActiveTab(): TabId {
   try {
@@ -262,14 +263,15 @@ function App() {
         }
       }
 
-      // Ctrl+1/2/3/4/5: Switch tabs
+      // Ctrl+1/2/3/4/5/6: Switch tabs
       if (e.ctrlKey || e.metaKey) {
         const tabMap: Record<string, TabId> = {
           '1': 'discover',
           '2': 'installed',
-          '3': 'mcp',
-          '4': 'history',
-          '5': 'settings',
+          '3': 'sync',
+          '4': 'mcp',
+          '5': 'history',
+          '6': 'settings',
         };
         const targetTab = tabMap[e.key];
         if (targetTab) {
@@ -409,6 +411,20 @@ function App() {
             >
               <Suspense fallback={<PageFallback />}>
                 <InstalledPage />
+              </Suspense>
+            </motion.div>
+          )}
+          {activeTab === 'sync' && (
+            <motion.div
+              key="sync"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={pageTransition}
+              className="h-full"
+            >
+              <Suspense fallback={<PageFallback />}>
+                <SyncPage />
               </Suspense>
             </motion.div>
           )}

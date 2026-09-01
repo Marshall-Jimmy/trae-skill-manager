@@ -8,6 +8,7 @@ pub mod process;
 pub mod remove;
 pub mod scan;
 pub mod search_github;
+pub mod sync;
 pub mod toggle;
 pub mod translate;
 pub mod update;

@@ -149,6 +149,50 @@ pub fn validate_frontmatter(fm: &SkillFrontmatter) -> Vec<String> {
     errors
 }
 
+/// 把 SKILL.md 标准化为 agentskills.io 规范：只保留标准字段，
+/// 剥离厂商特有 frontmatter（如 Cursor 的 paths / disable-model-invocation）。
+/// 安装到 .agents/skills 通用目录时调用，保证跨工具可读。
+/// 无 frontmatter 或解析失败时原样返回，绝不报错。
+pub fn standardize_skill_md(content: &str) -> String {
+    let parsed = parse_skill(content);
+    if !parsed.has_frontmatter {
+        return content.to_string();
+    }
+    let fm = &parsed.frontmatter;
+
+    let mut out = String::from("---\n");
+    if let Some(name) = &fm.name {
+        out.push_str(&format!("name: {}\n", name));
+    }
+    if let Some(desc) = &fm.description {
+        out.push_str(&format!("description: {}\n", desc));
+    }
+    if let Some(license) = &fm.license {
+        out.push_str(&format!("license: {}\n", license));
+    }
+    if let Some(version) = &fm.version {
+        out.push_str(&format!("version: {}\n", version));
+    }
+    if !fm.tags.is_empty() {
+        out.push_str("tags:\n");
+        for t in &fm.tags {
+            out.push_str(&format!("  - {}\n", t));
+        }
+    }
+    if !fm.allowed_tools.is_empty() {
+        out.push_str("allowed-tools:\n");
+        for t in &fm.allowed_tools {
+            out.push_str(&format!("  - {}\n", t));
+        }
+    }
+    if let Some(meta) = &fm.metadata {
+        out.push_str(&format!("metadata: {}\n", meta));
+    }
+    out.push_str("---\n");
+    out.push_str(parsed.body.trim_start());
+    out
+}
+
 fn is_valid_name(name: &str) -> bool {
     if name.is_empty() || name.len() > 64 {
         return false;
@@ -310,5 +354,24 @@ mod tests {
         };
         let errors = validate_frontmatter(&fm);
         assert!(errors.iter().any(|e| e.contains("1024")));
+    }
+
+    #[test]
+    fn standardize_strips_vendor_fields() {
+        let content = "---\nname: foo\ndescription: d\npaths:\n  - src/**\ndisable-model-invocation: true\ntags: [a, b]\n---\n# Body\n";
+        let out = standardize_skill_md(content);
+        assert!(out.contains("name: foo"));
+        assert!(out.contains("description: d"));
+        assert!(out.contains("tags:"));
+        assert!(out.contains("  - a"));
+        assert!(!out.contains("paths"));
+        assert!(!out.contains("disable-model-invocation"));
+        assert!(out.contains("# Body"));
+    }
+
+    #[test]
+    fn standardize_passthrough_without_frontmatter() {
+        let content = "# Just a heading\n\nBody";
+        assert_eq!(standardize_skill_md(content), content);
     }
 }

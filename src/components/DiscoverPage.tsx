@@ -35,6 +35,7 @@ import {
   Globe,
   Folder,
   Clock,
+  Layers,
 } from 'lucide-react';
 
 interface DiscoverPageProps {
@@ -292,8 +293,8 @@ function InstallTargetSelector({
   onChange,
   projectName,
 }: {
-  target: 'global' | 'project';
-  onChange: (target: 'global' | 'project') => void;
+  target: 'global' | 'project' | 'agents';
+  onChange: (target: 'global' | 'project' | 'agents') => void;
   projectName: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -322,11 +323,17 @@ function InstallTargetSelector({
       >
         {target === 'global' ? (
           <Globe className="w-3.5 h-3.5 text-trae-accent" />
+        ) : target === 'agents' ? (
+          <Layers className="w-3.5 h-3.5 text-trae-accent" />
         ) : (
           <Folder className="w-3.5 h-3.5 text-trae-accent" />
         )}
         <span className="max-w-[120px] truncate">
-          {target === 'global' ? '安装到全局' : `安装到 ${projectName}`}
+          {target === 'global'
+            ? '安装到全局'
+            : target === 'agents'
+            ? '安装到 .agents/skills'
+            : `安装到 ${projectName}`}
         </span>
         <motion.span
           animate={{ rotate: open ? 180 : 0 }}
@@ -372,6 +379,21 @@ function InstallTargetSelector({
                 安装到 {projectName}
               </span>
               {target === 'project' && <Check className="w-3.5 h-3.5" />}
+            </motion.button>
+            <motion.button
+              whileHover={{ x: 2 }}
+              onClick={() => { onChange('agents'); setOpen(false); }}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${
+                target === 'agents'
+                  ? 'text-trae-accent bg-trae-accent/10 font-medium'
+                  : 'text-trae-text-secondary hover:text-trae-text hover:bg-trae-card/40'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5 shrink-0" />
+              <span className="flex-1 text-left truncate">
+                .agents/skills（跨工具通用）
+              </span>
+              {target === 'agents' && <Check className="w-3.5 h-3.5" />}
             </motion.button>
           </motion.div>
         )}
@@ -447,7 +469,7 @@ export function DiscoverPage({
 
   const searchRef = useRef<HTMLInputElement>(null);
   const [installingId, setInstallingId] = useState<string | null>(null);
-  const [installTarget, setInstallTarget] = useState<'global' | 'project'>('global');
+  const [installTarget, setInstallTarget] = useState<'global' | 'project' | 'agents'>('global');
   const [toast, setToast] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -564,15 +586,21 @@ export function DiscoverPage({
       setInstallingId(skill.id);
       try {
         const currentProject = getCurrentProject();
-        const targetPath = installTarget === 'project' && currentProject
-          ? currentProject.skillsPath
-          : config.globalSkillsPath || '';
+        let targetPath = config.globalSkillsPath || '';
+        if (installTarget === 'project' && currentProject) {
+          targetPath = currentProject.skillsPath;
+        } else if (installTarget === 'agents' && currentProject) {
+          // .agents/skills 是跨工具通用目录（Phase 5.1）
+          targetPath = `${currentProject.path.replace(/[\\/]+$/, '')}/.agents/skills`;
+        }
 
         await installSkillStreamedToTarget(skill.source, skill.name, targetPath);
         setToast({ type: 'success', message: `已安装 ${skill.name}` });
 
         // Refresh the appropriate skills list
         if (installTarget === 'project' && currentProject) {
+          await loadProjectSkills(currentProject.path);
+        } else if (installTarget === 'agents' && currentProject) {
           await loadProjectSkills(currentProject.path);
         } else {
           await loadLocalSkills();

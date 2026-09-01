@@ -248,6 +248,19 @@ export interface RunningTool {
   workspaceHint?: string | null;
 }
 
+// ─── Cross-Tool Sync (Phase 5.2) ───────────────────────────────────────────
+
+export interface ToolSkillEntry {
+  toolId: string;
+  path: string;
+  enabled: boolean;
+}
+
+export interface CrossToolSkill {
+  name: string;
+  entries: ToolSkillEntry[];
+}
+
 // ─── Install Result ───────────────────────────────────────────────────────────
 
 export interface InstallResult {

@@ -265,6 +265,23 @@ pub struct RunningTool {
     pub workspace_hint: Option<String>,
 }
 
+// ─── Cross-Tool Sync (Phase 5.2) ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolSkillEntry {
+    pub tool_id: String,
+    pub path: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrossToolSkill {
+    pub name: String,
+    pub entries: Vec<ToolSkillEntry>,
+}
+
 // ─── Install Output Event (streamed to frontend) ──────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

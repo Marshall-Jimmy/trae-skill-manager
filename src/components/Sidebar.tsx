@@ -16,12 +16,13 @@ import {
   Sparkles,
   MoreHorizontal,
   Tag,
+  Link2,
 } from 'lucide-react';
 import { useSkillStore } from '../store/skillStore';
 import { CATEGORIES } from '../types';
 import { useMotionConfig } from '../lib/motionConfig';
 
-export type TabId = 'discover' | 'installed' | 'mcp' | 'history' | 'settings';
+export type TabId = 'discover' | 'installed' | 'mcp' | 'sync' | 'history' | 'settings';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -33,6 +34,7 @@ interface SidebarProps {
 const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'discover', label: '发现', icon: Compass },
   { id: 'installed', label: '已安装', icon: Package },
+  { id: 'sync', label: '同步', icon: Link2 },
   { id: 'mcp', label: 'MCP', icon: Server },
   { id: 'history', label: '历史', icon: History },
   { id: 'settings', label: '设置', icon: Settings },
