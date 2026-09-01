@@ -2,10 +2,8 @@ import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Sidebar, type TabId } from './components/Sidebar';
-import { ProjectSwitcher } from './components/ProjectSwitcher';
-import { ToolSelector } from './components/ToolSelector';
+import { AppSwitcher } from './components/AppSwitcher';
 import { TitleBar } from './components/TitleBar';
-import { RunningToolsBar } from './components/RunningToolsBar';
 import { ContextMenu, type ContextMenuItem } from './components/ContextMenu';
 import { AboutDialog } from './components/AboutDialog';
 import { useSkillStore } from './store/skillStore';
@@ -358,7 +356,6 @@ function App() {
         onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
         onShowAbout={() => setShowAbout(true)}
       />
-      <RunningToolsBar />
       <div className="flex flex-1 overflow-hidden">
       <Sidebar
         activeTab={activeTab}
@@ -367,17 +364,14 @@ function App() {
         collapsed={sidebarCollapsed}
       />
       <main className="flex-1 overflow-hidden relative flex flex-col">
-        {/* Top bar with project switcher */}
+        {/* Top bar: 地址栏简化为应用名 */}
         <motion.div
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring', mass: 1, stiffness: 200, damping: 24, delay: 0.1 }}
-          className="flex items-center justify-between px-6 py-3 border-b border-trae-border bg-trae-bg/80 backdrop-blur-sm shrink-0 z-10 shadow-hard-sm"
+          className="flex items-center px-6 py-3 border-b border-trae-border bg-trae-bg/80 backdrop-blur-sm shrink-0 z-10 shadow-hard-sm"
         >
-          <ProjectSwitcher />
-          <div className="flex items-center gap-2">
-            <ToolSelector />
-          </div>
+          <AppSwitcher />
         </motion.div>
 
         {/* Page content */}

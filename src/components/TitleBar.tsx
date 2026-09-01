@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
-import { message } from '@tauri-apps/plugin-dialog';
 import {
   Minus,
   Square,
@@ -22,6 +21,8 @@ import {
   Info,
 } from 'lucide-react';
 import { HelpMenu, type HelpMenuItem } from './HelpMenu';
+import { RunningAppsSwitcher } from './RunningAppsSwitcher';
+import { ProcessBrowserDialog } from './ProcessBrowserDialog';
 
 interface TitleBarProps {
   sidebarCollapsed: boolean;
@@ -34,6 +35,7 @@ const GITHUB_REPO = 'https://github.com/Marshall-Jimmy/trae-skill-manager';
 export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [processBrowserOpen, setProcessBrowserOpen] = useState(false);
   const helpButtonRef = useRef<HTMLButtonElement>(null);
   // In a plain browser (vite dev without tauri) the window API is unavailable.
   const appWindow = '__TAURI_INTERNALS__' in window ? getCurrentWindow() : null;
@@ -86,7 +88,7 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: Tit
       id: 'changelog',
       label: '显示更新日志',
       icon: BookOpen,
-      onClick: () => openUrl(`${GITHUB_REPO}/releases`),
+      onClick: () => openUrl(`${GITHUB_REPO}/commits`),
     },
     {
       id: 'devtools',
@@ -106,14 +108,14 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: Tit
       id: 'process',
       label: '进程浏览器',
       icon: Cpu,
-      onClick: () => message('进程浏览器功能开发中'),
+      onClick: () => setProcessBrowserOpen(true),
     },
     { id: 'sep-1', label: '', icon: Book, separator: true, onClick: () => {} },
     {
       id: 'docs',
       label: '帮助文档',
       icon: Book,
-      onClick: () => openUrl(GITHUB_REPO),
+      onClick: () => openUrl(`${GITHUB_REPO}#readme`),
     },
     {
       id: 'contact',
@@ -143,9 +145,10 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: Tit
   ];
 
   return (
+    <>
     <div
       data-tauri-drag-region="deep"
-      className="h-9 shrink-0 flex items-center bg-trae-sidebar select-none"
+      className="h-9 shrink-0 flex items-center bg-trae-sidebar select-none relative"
     >
       {/* Left group: sidebar toggle | separator | help */}
       <div className="flex items-center h-full">
@@ -185,6 +188,10 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: Tit
           />
         </div>
       </div>
+      {/* Center: 运行中应用状态栏（正中央） */}
+      <div className="absolute left-1/2 -translate-x-1/2 h-full flex items-center max-w-[45%]">
+        <RunningAppsSwitcher />
+      </div>
       {/* Spacer pushes window controls to the far right */}
       <div className="flex-1" />
       {/* Right group: window controls */}
@@ -215,5 +222,10 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: Tit
         </button>
       </div>
     </div>
+    <ProcessBrowserDialog
+      open={processBrowserOpen}
+      onClose={() => setProcessBrowserOpen(false)}
+    />
+    </>
   );
 }
