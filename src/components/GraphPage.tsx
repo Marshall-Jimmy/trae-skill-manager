@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useSkillStore, getSkillCategory } from '../store/skillStore';
 import { CATEGORIES, type RemoteSkill, type LocalSkill, type SkillCategory } from '../types';
+import { useIsLight, getAccentHex } from '../lib/theme';
 
 // ─── Graph types ───────────────────────────────────────────────────────────
 
@@ -274,6 +275,8 @@ function stepSimulation(
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export function GraphPage() {
+  const isLight = useIsLight();
+  const accentHex = getAccentHex();
   const remoteSkills = useSkillStore((s) => s.remoteSkills);
   const localSkills = useSkillStore((s) => s.localSkills);
   const remoteLoading = useSkillStore((s) => s.remoteLoading);
@@ -309,6 +312,12 @@ export function GraphPage() {
     });
     return sorted.slice(0, MAX_NODES);
   }, [remoteSkills, localSkills]);
+
+  // dev-tools 分类映射到当前强调色（浅色下为压暗后的值），保证图例/节点在两种主题下可读。
+  const categoryColors = useMemo<Record<SkillCategory, string>>(
+    () => ({ ...CATEGORY_COLORS, 'dev-tools': accentHex }),
+    [accentHex],
+  );
 
   // Graph page is usually visited before Discover, so seed remote data once.
   useEffect(() => {
@@ -629,7 +638,7 @@ export function GraphPage() {
                         y1={a.y}
                         x2={b.x}
                         y2={b.y}
-                        stroke={highlighted ? '#00ff88' : '#6b7280'}
+                        stroke={highlighted ? accentHex : '#6b7280'}
                         strokeOpacity={highlighted ? 0.5 : 0.15}
                         strokeWidth={highlighted ? 1.5 : 1}
                       />
@@ -647,7 +656,7 @@ export function GraphPage() {
                     if (!node) return null;
                     const isHovered = hovered === node.id;
                     const isSelected = selected?.id === node.id;
-                    const color = CATEGORY_COLORS[node.category];
+                    const color = categoryColors[node.category];
                     return (
                       <g
                         key={node.id}
@@ -674,14 +683,14 @@ export function GraphPage() {
                           r={node.radius + (isHovered ? 3 : 0)}
                           fill={color}
                           fillOpacity={isHovered ? 1 : 0.85}
-                          stroke={isHovered || isSelected ? '#ffffff' : '#0a0a0f'}
+                          stroke={isHovered || isSelected ? accentHex : isLight ? '#ffffff' : '#0a0a0f'}
                           strokeWidth={isHovered || isSelected ? 2 : 1}
                         />
                         {node.radius >= 8 && (
                           <text
                             y={node.radius + 12}
                             textAnchor="middle"
-                            fill="#f0f0f5"
+                            fill={isLight ? '#1a1a1a' : '#f0f0f5'}
                             fontSize={9}
                             opacity={0.75}
                           >
@@ -704,7 +713,7 @@ export function GraphPage() {
                     <div key={c.id} className="flex items-center gap-2">
                       <span
                         className="w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ background: CATEGORY_COLORS[c.id] }}
+                        style={{ background: categoryColors[c.id] }}
                       />
                       <span className="text-[11px] text-trae-text-secondary">{c.label}</span>
                     </div>
@@ -755,7 +764,7 @@ export function GraphPage() {
                       <span className="flex items-center gap-1.5 text-trae-text text-right">
                         <span
                           className="w-2 h-2 rounded-full shrink-0"
-                          style={{ background: CATEGORY_COLORS[selected.category] }}
+                          style={{ background: categoryColors[selected.category] }}
                         />
                         {CATEGORY_LABELS[selected.category] ?? selected.category}
                       </span>

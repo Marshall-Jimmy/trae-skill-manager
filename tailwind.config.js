@@ -8,10 +8,10 @@ export default {
     extend: {
       colors: {
         trae: {
-          bg: '#0a0a0f',
-          sidebar: '#111118',
-          card: '#16161d',
-          'card-hover': '#1c1c24',
+          bg: 'rgb(var(--trae-bg) / <alpha-value>)',
+          sidebar: 'rgb(var(--trae-sidebar) / <alpha-value>)',
+          card: 'rgb(var(--trae-card) / <alpha-value>)',
+          'card-hover': 'rgb(var(--trae-card-hover) / <alpha-value>)',
           accent: 'rgb(var(--trae-accent) / <alpha-value>)',
           'accent-deep': 'rgb(var(--trae-accent-deep) / <alpha-value>)',
           text: '#f0f0f5',

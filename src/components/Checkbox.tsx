@@ -34,7 +34,7 @@ export function Checkbox({
       whileTap={{ scale: 0.82 }}
       className={`${box} shrink-0 rounded-[4px] border flex items-center justify-center transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-trae-accent/30 ${
         checked
-          ? 'bg-trae-accent border-trae-accent text-[#0a0a0f]'
+          ? 'bg-trae-accent border-trae-accent text-trae-bg'
           : 'bg-trae-bg border-trae-border-hover hover:border-trae-accent/60 hover:bg-trae-card/60'
       } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} ${className || ''}`}
     >

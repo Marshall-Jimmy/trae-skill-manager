@@ -199,6 +199,13 @@ export function SettingsPage() {
   const [bootstrapMsg, setBootstrapMsg] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<{ total_bytes: number } | null>(null);
   const [cacheClearing, setCacheClearing] = useState(false);
+  // 自定义取色器的 hex 值：与 triplet 存储并行维护，保证取色器始终显示当前强调色
+  const [accentHex, setAccentHex] = useState(
+    () =>
+      (config.accentColor?.startsWith('#') && config.accentColor) ||
+      ACCENT_PRESETS.find((p) => p.triplet === config.accentColor)?.hex ||
+      ACCENT_PRESETS[0].hex
+  );
   const { config: motionConfig, setSpeed, setEnabled } = useMotionConfig();
   const { setting: langSetting, setSetting: setLangSetting } = useI18nStore();
   useLang();
@@ -224,6 +231,11 @@ export function SettingsPage() {
 
   useEffect(() => {
     setLocalConfig(config);
+    setAccentHex(
+      (config.accentColor?.startsWith('#') && config.accentColor) ||
+        ACCENT_PRESETS.find((p) => p.triplet === config.accentColor)?.hex ||
+        ACCENT_PRESETS[0].hex
+    );
   }, [config]);
 
   const applyTheme = useCallback((theme: string) => {
@@ -601,7 +613,10 @@ export function SettingsPage() {
                   <motion.button
                     key={preset.hex}
                     title={preset.name}
-                    onClick={() => setLocalConfig({ ...localConfig, accentColor: preset.triplet })}
+                    onClick={() => {
+                      setLocalConfig({ ...localConfig, accentColor: preset.triplet });
+                      setAccentHex(preset.hex);
+                    }}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                     className={`w-7 h-7 rounded-full border-2 transition-all ${
@@ -617,17 +632,14 @@ export function SettingsPage() {
               >
                 <input
                   type="color"
-                  value={
-                    localConfig.accentColor?.startsWith('#')
-                      ? localConfig.accentColor
-                      : ACCENT_PRESETS[0].hex
-                  }
-                  onChange={(e) =>
+                  value={accentHex}
+                  onChange={(e) => {
                     setLocalConfig({
                       ...localConfig,
                       accentColor: hexToTriplet(e.target.value),
-                    })
-                  }
+                    });
+                    setAccentHex(e.target.value);
+                  }}
                   className="absolute inset-0 opacity-0 cursor-pointer"
                 />
                 <span className="absolute inset-0 flex items-center justify-center text-[10px] text-trae-text-secondary">
