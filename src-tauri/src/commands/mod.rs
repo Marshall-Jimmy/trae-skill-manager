@@ -4,6 +4,7 @@ pub mod fetch;
 pub mod history;
 pub mod install;
 pub mod mcp;
+pub mod mcp_sync;
 pub mod process;
 pub mod remove;
 pub mod scan;

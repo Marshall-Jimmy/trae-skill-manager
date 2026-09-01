@@ -8,6 +8,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { McpIcon } from '../lib/iconMap';
+import { ToolIcon, TOOL_DISPLAY_NAMES } from './ToolIcon';
 import type { McpServer } from '../types';
 
 interface McpServerCardProps {
@@ -161,6 +162,22 @@ export function McpServerCard({
             {server.source === 'user' && (
               <span className="text-[11px] text-trae-text-secondary/70">
                 自定义
+              </span>
+            )}
+            {server.targetTools && server.targetTools.length > 0 && (
+              <span
+                className="flex items-center gap-1 text-[11px] text-trae-text-secondary/70"
+                title={`同步到：${server.targetTools
+                  .map((id) => TOOL_DISPLAY_NAMES[id] || id)
+                  .join('、')}`}
+              >
+                同步到
+                {server.targetTools.slice(0, 3).map((id) => (
+                  <ToolIcon key={id} id={id} className="w-3.5 h-3.5" />
+                ))}
+                {server.targetTools.length > 3 && (
+                  <span className="text-trae-accent">+{server.targetTools.length - 3}</span>
+                )}
               </span>
             )}
           </div>

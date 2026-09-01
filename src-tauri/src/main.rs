@@ -494,6 +494,31 @@ fn mcp_export_config(servers: Vec<serde_json::Value>, export_path: String) -> Re
     commands::mcp::mcp_export_config(servers, export_path)
 }
 
+// ─── MCP Cross-Tool Sync Commands (Phase 6) ───────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+fn mcp_get_targets(project_path: Option<String>) -> Vec<commands::mcp_sync::McpTargetInfo> {
+    commands::mcp_sync::mcp_get_targets(project_path)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn mcp_write_servers(
+    servers: Vec<commands::mcp::McpConnectionConfig>,
+    tool_ids: Vec<String>,
+    project_path: Option<String>,
+    overwrite_conflicts: bool,
+) -> Vec<commands::mcp_sync::McpWriteResult> {
+    commands::mcp_sync::mcp_write_servers(servers, tool_ids, project_path, overwrite_conflicts)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn mcp_read_servers(
+    tool_id: String,
+    project_path: Option<String>,
+) -> Result<Vec<commands::mcp::McpConnectionConfig>, String> {
+    commands::mcp_sync::mcp_read_servers(tool_id, project_path)
+}
+
 // ─── Update Commands ──────────────────────────────────────────────────────
 
 #[tauri::command(rename_all = "camelCase")]
@@ -640,6 +665,9 @@ fn main() {
             mcp_start_server,
             mcp_stop_server,
             mcp_export_config,
+            mcp_get_targets,
+            mcp_write_servers,
+            mcp_read_servers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

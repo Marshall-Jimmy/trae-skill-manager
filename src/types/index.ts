@@ -372,6 +372,8 @@ export interface McpServer {
   logs?: string[];
   /** PID of the running process (if any) */
   pid?: number;
+  /** 同步写入的目标工具 id 列表（Phase 6 跨工具同步） */
+  targetTools?: string[];
 }
 
 // ─── MCP Marketplace Server (template / catalog entry) ────────────────────
@@ -432,4 +434,32 @@ export interface McpLogEvent {
 export interface McpExitEvent {
   pid: number;
   code?: number | null;
+}
+
+// ─── MCP Cross-Tool Sync (Phase 6) ────────────────────────────────────────
+
+export interface McpTargetInfo {
+  toolId: string;
+  displayName: string;
+  icon: string;
+  /** 配置文件绝对路径；无可用路径（如 Trae 无项目）时为 null */
+  path?: string | null;
+  format: 'json' | 'toml';
+  /** 配置文件是否已存在 */
+  exists: boolean;
+  /** 已有配置中的 server 名称列表 */
+  serverNames: string[];
+}
+
+export interface McpConflict {
+  serverName: string;
+  existing: McpConnectionConfig;
+  incoming: McpConnectionConfig;
+}
+
+export interface McpWriteResult {
+  toolId: string;
+  success: boolean;
+  message: string;
+  conflicts: McpConflict[];
 }

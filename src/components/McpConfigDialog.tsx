@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -10,17 +10,28 @@ import {
   XCircle,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   Server,
   Globe,
   Terminal,
 } from 'lucide-react';
 import { useMcpStore } from '../store/mcpStore';
+import { useSkillStore } from '../store/skillStore';
+import { ToolIcon } from './ToolIcon';
 import { McpIcon, mcpIconNames } from '../lib/iconMap';
-import type { McpServer, McpConfigType, McpTestResult } from '../types';
+import type {
+  McpServer,
+  McpConfigType,
+  McpTestResult,
+  McpConnectionConfig,
+  McpTargetInfo,
+  McpWriteResult,
+} from '../types';
 
 interface McpConfigDialogProps {
   open: boolean;
   onClose: () => void;
+  onToast?: (type: 'success' | 'error', message: string) => void;
 }
 
 interface EnvVar {
@@ -28,9 +39,10 @@ interface EnvVar {
   value: string;
 }
 
-export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
+export function McpConfigDialog({ open, onClose, onToast }: McpConfigDialogProps) {
   const { editingServer, marketplaceTemplate, addServer, updateServer, addServerFromMarketplace, startServer } =
     useMcpStore();
+  const getCurrentProject = useSkillStore((s) => s.getCurrentProject);
 
   const isEditing = !!editingServer;
   const isFromMarketplace = !!marketplaceTemplate && !editingServer;
@@ -50,6 +62,12 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const [testMessage, setTestMessage] = useState('');
+
+  // Cross-tool sync state (Phase 6)
+  const [targets, setTargets] = useState<McpTargetInfo[]>([]);
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [conflictResults, setConflictResults] = useState<McpWriteResult[] | null>(null);
 
   // Initialize form from editing server or marketplace template
   useEffect(() => {
@@ -99,6 +117,24 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
     setTestResult(null);
     setTestMessage('');
   }, [open, editingServer?.id, marketplaceTemplate?.id]);
+
+  // Load MCP config targets when dialog opens
+  useEffect(() => {
+    if (!open) return;
+    const project = getCurrentProject();
+    const projectPath = project?.path || null;
+    setConflictResults(null);
+    invoke<McpTargetInfo[]>('mcp_get_targets', { projectPath })
+      .then((list) => {
+        setTargets(list);
+        const available = list.filter((t) => t.path).map((t) => t.toolId);
+        // 编辑时沿用已保存的目标工具；新建或旧数据默认全选可用工具
+        const saved =
+          editingServer?.targetTools?.filter((id) => available.includes(id)) || [];
+        setSelectedTools(saved.length > 0 ? saved : available);
+      })
+      .catch(() => setTargets([]));
+  }, [open, editingServer?.id, getCurrentProject]);
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -227,54 +263,75 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
     setTesting(false);
   };
 
-  const handleSave = () => {
-    if (!validate()) return;
+  const buildServerConfig = (): McpConnectionConfig => ({
+    name: name.trim(),
+    command: command.trim(),
+    args: parseArgs(),
+    env: buildEnvObject(),
+    cwd: cwd.trim() || undefined,
+    configType,
+    url: url.trim() || undefined,
+  });
 
-    const env = buildEnvObject();
-    const args = parseArgs();
-
-    if (editingServer) {
-      updateServer(editingServer.id, {
-        name: name.trim(),
-        description: description.trim(),
-        icon: icon.trim() || undefined,
-        category,
-        command: command.trim(),
-        args,
-        env,
-        configType,
-        url: url.trim() || undefined,
-        cwd: cwd.trim() || undefined,
-      });
-    } else if (marketplaceTemplate) {
-      addServerFromMarketplace(marketplaceTemplate, env);
-    } else {
-      addServer({
-        name: name.trim(),
-        description: description.trim(),
-        icon: icon.trim() || undefined,
-        category,
-        command: command.trim(),
-        args,
-        env,
-        configType,
-        url: url.trim() || undefined,
-        cwd: cwd.trim() || undefined,
-        source: 'user',
-      });
-    }
-
-    onClose();
+  const toggleTool = (toolId: string) => {
+    setSelectedTools((prev) =>
+      prev.includes(toolId) ? prev.filter((id) => id !== toolId) : [...prev, toolId],
+    );
   };
 
-  const handleSaveAndStart = async () => {
-    if (!validate()) return;
+  const toolNameMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const t of targets) m[t.toolId] = t.displayName;
+    return m;
+  }, [targets]);
+
+  // 把 server 配置写入所有选中工具的配置文件；返回结果供调用方判断冲突。
+  const writeToTargets = async (
+    serverConfig: McpConnectionConfig,
+    overwriteConflicts = false,
+  ): Promise<McpWriteResult[]> => {
+    if (selectedTools.length === 0) return [];
+    const project = getCurrentProject();
+    const projectPath = project?.path || null;
+    setSyncing(true);
+    try {
+      const results = await invoke<McpWriteResult[]>('mcp_write_servers', {
+        servers: [serverConfig],
+        toolIds: selectedTools,
+        projectPath,
+        overwriteConflicts,
+      });
+      if (!overwriteConflicts) {
+        const withConflicts = results.filter((r) => r.conflicts.length > 0);
+        if (withConflicts.length > 0) {
+          setConflictResults(results);
+          return results;
+        }
+      }
+      const failed = results.filter((r) => !r.success);
+      if (failed.length > 0) {
+        onToast?.('error', `同步失败：${failed.map((r) => r.message).join('；')}`);
+      } else {
+        onToast?.('success', `已同步到 ${results.length} 个工具的配置`);
+      }
+      return results;
+    } catch (e) {
+      onToast?.('error', `同步配置失败：${String(e)}`);
+      return [];
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // 保存到应用本地 + 写入目标工具；返回 null 表示存在待处理冲突（保持对话框打开）。
+  const performSave = async (): Promise<McpServer | null> => {
+    if (!validate()) return null;
 
     const env = buildEnvObject();
     const args = parseArgs();
+    const serverConfig = buildServerConfig();
 
     let server: McpServer;
-
     if (editingServer) {
       updateServer(editingServer.id, {
         name: name.trim(),
@@ -287,10 +344,12 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
         configType,
         url: url.trim() || undefined,
         cwd: cwd.trim() || undefined,
+        targetTools: selectedTools,
       });
       server = editingServer;
     } else if (marketplaceTemplate) {
       server = addServerFromMarketplace(marketplaceTemplate, env);
+      updateServer(server.id, { targetTools: selectedTools });
     } else {
       server = addServer({
         name: name.trim(),
@@ -305,13 +364,41 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
         cwd: cwd.trim() || undefined,
         source: 'user',
       });
+      updateServer(server.id, { targetTools: selectedTools });
     }
 
-    // Start the server after saving
-    setTimeout(() => {
-      startServer(server.id);
-    }, 200);
+    const results = await writeToTargets(serverConfig);
+    if (results.some((r) => r.conflicts.length > 0)) {
+      return null;
+    }
+    return server;
+  };
 
+  const handleSave = async () => {
+    const server = await performSave();
+    if (server) onClose();
+  };
+
+  const handleSaveAndStart = async () => {
+    const server = await performSave();
+    if (server) {
+      setTimeout(() => startServer(server.id), 200);
+      onClose();
+    }
+  };
+
+  const handleOverwrite = async () => {
+    if (!conflictResults) return;
+    const serverConfig = buildServerConfig();
+    const results = await writeToTargets(serverConfig, true);
+    if (results.some((r) => r.conflicts.length > 0)) return;
+    setConflictResults(null);
+    onClose();
+  };
+
+  const handleCancelOverwrite = () => {
+    setConflictResults(null);
+    onToast?.('success', '已保存，未覆盖冲突的工具配置');
     onClose();
   };
 
@@ -642,6 +729,115 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
                 </div>
               </div>
 
+              {/* Target tools (Phase 6 跨工具同步) */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-trae-text flex items-center gap-2">
+                    <span className="w-1 h-4 bg-trae-accent rounded-full" />
+                    目标工具
+                  </h4>
+                  <span className="text-[11px] text-trae-text-secondary/70">
+                    保存时同步写入所选工具的 MCP 配置
+                  </span>
+                </div>
+                <div className="pl-3 space-y-2">
+                  {targets.length === 0 ? (
+                    <p className="text-xs text-trae-text-secondary/70">
+                      正在检测可用的工具配置...
+                    </p>
+                  ) : (
+                    targets.map((t) => {
+                      const checked = selectedTools.includes(t.toolId);
+                      const disabled = !t.path;
+                      return (
+                        <label
+                          key={t.toolId}
+                          className={`flex items-center gap-2.5 px-3 py-2 border rounded-lg cursor-pointer transition-colors ${
+                            checked
+                              ? 'bg-trae-accent/10 border-trae-accent/30'
+                              : 'bg-trae-card/20 border-trae-border hover:bg-trae-card/40'
+                          } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={() => toggleTool(t.toolId)}
+                            className="w-3.5 h-3.5 accent-trae-accent"
+                          />
+                          <ToolIcon id={t.toolId} className="w-4 h-4" />
+                          <span className="text-xs text-trae-text flex-1 truncate">
+                            {t.displayName}
+                          </span>
+                          {disabled ? (
+                            <span className="text-[10px] text-trae-text-secondary/60 shrink-0">
+                              需要项目路径
+                            </span>
+                          ) : t.exists ? (
+                            <span className="text-[10px] text-trae-text-secondary/70 shrink-0">
+                              {t.serverNames.length > 0
+                                ? `已配置 ${t.serverNames.length} 个`
+                                : '已检测到配置'}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-trae-text-secondary/60 shrink-0">
+                              将新建配置文件
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Conflict warning (Phase 6) */}
+              {conflictResults && (
+                <div className="pl-3">
+                  <div className="p-3 rounded-lg border border-trae-warning/40 bg-trae-warning/10">
+                    <div className="flex items-center gap-2 text-sm font-medium text-trae-warning mb-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      检测到配置冲突
+                    </div>
+                    <p className="text-xs text-trae-text-secondary mb-3">
+                      以下工具中已存在同名 MCP Server 且配置不同，直接保存会覆盖原配置：
+                    </p>
+                    <div className="space-y-1.5 mb-3">
+                      {conflictResults
+                        .filter((r) => r.conflicts.length > 0)
+                        .map((r) => (
+                          <div key={r.toolId} className="text-xs text-trae-text">
+                            <span className="text-trae-accent font-medium">
+                              {toolNameMap[r.toolId] || r.toolId}
+                            </span>
+                            <span className="text-trae-text-secondary">
+                              {' · '}
+                              {r.conflicts.map((c) => c.serverName).join(', ')}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleOverwrite}
+                        disabled={syncing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-trae-warning/20 text-trae-warning hover:bg-trae-warning/30 border border-trae-warning/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {syncing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                        覆盖写入
+                      </button>
+                      <button
+                        onClick={handleCancelOverwrite}
+                        disabled={syncing}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-trae-card/30 text-trae-text-secondary hover:bg-trae-card/50 hover:text-trae-text transition-all border border-trae-border disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Test connection */}
               <div>
                 <h4 className="text-sm font-medium text-trae-text mb-3 flex items-center gap-2">
@@ -697,22 +893,30 @@ export function McpConfigDialog({ open, onClose }: McpConfigDialogProps) {
             <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-trae-border bg-trae-card/30 shrink-0">
               <button
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-trae-card/30 text-trae-text-secondary hover:bg-trae-card/50 hover:text-trae-text transition-all border border-trae-border"
+                disabled={syncing}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-trae-card/30 text-trae-text-secondary hover:bg-trae-card/50 hover:text-trae-text transition-all border border-trae-border disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 取消
               </button>
               <button
                 onClick={handleSave}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-trae-accent/15 text-trae-accent hover:bg-trae-accent/25 transition-all border border-trae-accent/20"
+                disabled={syncing}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-trae-accent/15 text-trae-accent hover:bg-trae-accent/25 transition-all border border-trae-accent/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
+                {syncing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 保存
               </button>
               {!isEditing && (
                 <button
                   onClick={handleSaveAndStart}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-trae-accent/25 text-trae-accent hover:bg-trae-accent/35 transition-all border border-trae-accent/30"
+                  disabled={syncing}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-trae-accent/25 text-trae-accent hover:bg-trae-accent/35 transition-all border border-trae-accent/30 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Play className="w-4 h-4" />
+                  {syncing ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )}
                   保存并启动
                 </button>
               )}

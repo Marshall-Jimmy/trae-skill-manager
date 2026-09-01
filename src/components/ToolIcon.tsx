@@ -11,6 +11,14 @@ const toolIconMap: Record<string, string> = {
   codex: codexSvg,
 };
 
+// 工具 id → 展示名，用于徽标 tooltip 等轻量场景。
+export const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  trae: 'Trae',
+  'claude-code': 'Claude Code',
+  cursor: 'Cursor',
+  codex: 'Codex',
+};
+
 export function ToolIcon({ id, className }: { id: string; className?: string }) {
   const svgContent = toolIconMap[id] || traeSvg;
   return (
