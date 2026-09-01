@@ -28,6 +28,10 @@ npm-debug.log*
 .env.*
 !.env.example
 
+# Tauri updater signing keys (private key must never be committed)
+.tauri-signing-key
+.tauri-signing-key.pub
+
 # TypeScript
 *.tsbuildinfo
 *.tsbuildinfo.*

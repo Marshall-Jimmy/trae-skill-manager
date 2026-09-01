@@ -406,6 +406,8 @@ fn get_config() -> AppConfig {
         global_skills_path: detected_skills_path,
         project_path: String::new(),
         theme: "dark".to_string(),
+        accent_color: Some("0,255,136".to_string()),
+        language: Some("system".to_string()),
         translation: TranslationConfig {
             enabled: false,
             target_language: "zh".to_string(),
@@ -539,12 +541,67 @@ fn rollback_skill(skill_path: String) -> Result<models::UpdateResult, String> {
     commands::update::rollback_skill(skill_path)
 }
 
+// ─── Diagnosis Commands (Phase 7.1) ───────────────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+fn diagnose_skills(tool_id: Option<String>) -> Result<models::SkillDiagnosisResult, String> {
+    commands::diagnose::diagnose_skills(tool_id.as_deref())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_telemetry_config() -> models::TelemetryConfig {
+    commands::diagnose::get_telemetry_config()
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn set_telemetry_config(config: models::TelemetryConfig) -> Result<(), String> {
+    commands::diagnose::set_telemetry_config(config)
+}
+
+// ─── Preset Commands (Phase 7.3) ──────────────────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+fn list_presets() -> Vec<models::SkillPreset> {
+    commands::preset::list_presets()
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn export_preset(preset: models::SkillPreset, export_path: String) -> Result<(), String> {
+    commands::preset::export_preset(&preset, &export_path)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn import_preset(import_path: String) -> Result<models::SkillPreset, String> {
+    commands::preset::import_preset(&import_path)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn install_preset(
+    preset: models::SkillPreset,
+    tool_id: Option<String>,
+) -> Result<models::BatchResult, String> {
+    commands::preset::install_preset(&preset, tool_id.as_deref()).await
+}
+
+// ─── App Update Commands (Phase 8.1) ──────────────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+async fn check_app_update(app: tauri::AppHandle) -> Result<models::AppUpdateInfo, String> {
+    commands::update::check_app_update(&app).await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn install_app_update(app: tauri::AppHandle) -> Result<(), String> {
+    commands::update::install_app_update(&app).await
+}
+
 // ─── Main Entry ──────────────────────────────────────────────────────────
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Debug HTTP server is dev-only: exposing a local port in a release
             // build would let any local process drive the app.
@@ -661,6 +718,15 @@ fn main() {
             check_for_updates,
             update_skill_streamed,
             rollback_skill,
+            diagnose_skills,
+            get_telemetry_config,
+            set_telemetry_config,
+            list_presets,
+            export_preset,
+            import_preset,
+            install_preset,
+            check_app_update,
+            install_app_update,
             mcp_test_connection,
             mcp_start_server,
             mcp_stop_server,

@@ -226,6 +226,12 @@ pub struct AppConfig {
     pub global_skills_path: String,
     pub project_path: String,
     pub theme: String,
+    /// 强调色（"r,g,b" 三元组或 #hex），Phase 8.4 主题自定义
+    #[serde(default)]
+    pub accent_color: Option<String>,
+    /// 界面语言（"zh" | "en" | "system"），Phase 8.2 多语言
+    #[serde(default)]
+    pub language: Option<String>,
     #[serde(default)]
     pub translation: TranslationConfig,
     #[serde(default)]
@@ -237,6 +243,127 @@ pub struct AppConfig {
 
 fn default_active_tool() -> String {
     "trae".to_string()
+}
+
+// ─── Skill Diagnosis (Phase 7.1 健康度诊断) ───────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosisTokenCost {
+    pub total_tokens: u64,
+    pub skill_count: u32,
+    pub file_count: u32,
+    pub avg_tokens_per_skill: u64,
+    pub top_skills: Vec<DiagnosisTopSkill>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosisTopSkill {
+    pub name: String,
+    pub tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosisConflict {
+    pub name: String,
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosisZombie {
+    pub path: String,
+    pub name: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosisQualityIssue {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosisQuality {
+    pub name: String,
+    pub path: String,
+    pub score: u32,
+    pub issues: Vec<DiagnosisQualityIssue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosisSummary {
+    pub total: u32,
+    pub healthy: u32,
+    pub warnings: u32,
+    pub errors: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDiagnosisResult {
+    pub token_cost: DiagnosisTokenCost,
+    pub conflicts: Vec<DiagnosisConflict>,
+    pub zombies: Vec<DiagnosisZombie>,
+    pub quality: Vec<DiagnosisQuality>,
+    pub summary: DiagnosisSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TelemetryConfig {
+    pub enabled: bool,
+}
+
+// ─── Skill Preset (Phase 7.3 技能栈配方) ───────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetSkillRef {
+    pub name: String,
+    pub source: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillPreset {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub skills: Vec<PresetSkillRef>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub created_at: Option<i64>,
+    /// 内置官方配方为 true，用户自建为 false
+    #[serde(default)]
+    pub built_in: bool,
+}
+
+// ─── App Update (Phase 8.1 自动更新) ───────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateInfo {
+    pub available: bool,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub current_version: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub pub_date: Option<String>,
+    #[serde(default)]
+    pub download_url: Option<String>,
 }
 
 // ─── Tool Status (from Tool Adapter registry) ─────────────────────────────
@@ -280,6 +407,25 @@ pub struct ToolSkillEntry {
 pub struct CrossToolSkill {
     pub name: String,
     pub entries: Vec<ToolSkillEntry>,
+}
+
+// ─── Batch / Single operation results ─────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchResult {
+    pub results: Vec<SingleResult>,
+    pub total: u32,
+    pub succeeded: u32,
+    pub failed: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleResult {
+    pub skill_name: String,
+    pub success: bool,
+    pub message: String,
 }
 
 // ─── Install Output Event (streamed to frontend) ──────────────────────────

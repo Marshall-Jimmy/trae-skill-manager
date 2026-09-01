@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSkillStore } from '../store/skillStore';
-import { Folder, Sun, Moon, Monitor, Save, Loader2, Check, Download, Upload, Languages, Key, Globe, Sparkles, Trash2, Zap, Rabbit, Turtle, Gauge, Github, Eye, EyeOff, Edit2, FolderOpen, Plus, RefreshCw } from 'lucide-react';
+import { Folder, Sun, Moon, Monitor, Save, Loader2, Check, Download, Upload, Languages, Key, Globe, Sparkles, Trash2, Zap, Rabbit, Turtle, Gauge, Github, Eye, EyeOff, Edit2, FolderOpen, Plus, RefreshCw, Palette } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { Checkbox } from './Checkbox';
 import type { AppConfig, TranslationConfig, Project } from '../types';
 import { useMotionConfig, type MotionSpeed, SPEED_MULTIPLIERS } from '../lib/motionConfig';
+import { applyTheme as applyThemeShared, applyAccent, ACCENT_PRESETS, hexToTriplet } from '../lib/theme';
+import { useI18nStore, useLang, type LangSetting } from '../store/i18nStore';
+import { t } from '../lib/i18n';
+
+const UI_LANGUAGE_OPTIONS: { value: LangSetting; label: string }[] = [
+  { value: 'zh', label: '简体中文' },
+  { value: 'en', label: 'English' },
+  { value: 'system', label: '跟随系统' },
+];
 
 const LANGUAGE_OPTIONS = [
   { code: 'zh', label: '简体中文' },
@@ -181,6 +190,8 @@ export function SettingsPage() {
   } | null>(null);
   const [githubRateLoading, setGithubRateLoading] = useState(false);
   const { config: motionConfig, setSpeed, setEnabled } = useMotionConfig();
+  const { setting: langSetting, setSetting: setLangSetting } = useI18nStore();
+  useLang();
 
   useEffect(() => {
     const init = async () => {
@@ -196,36 +207,14 @@ export function SettingsPage() {
   }, [config]);
 
   const applyTheme = useCallback((theme: string) => {
-    // Clean up any existing system theme listener
-    const oldHandler = (window as any).__themeHandler;
-    if (oldHandler) {
-      window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', oldHandler);
-      (window as any).__themeHandler = undefined;
-    }
-
-    if (theme === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
-      const handler = (e: MediaQueryListEvent | MediaQueryList) => {
-        if (e.matches) {
-          document.body.classList.remove('theme-light');
-        } else {
-          document.body.classList.add('theme-light');
-        }
-      };
-      handler(prefersDark);
-      prefersDark.addEventListener('change', handler);
-      (window as any).__themeHandler = handler;
-    } else if (theme === 'light') {
-      document.body.classList.add('theme-light');
-    } else {
-      document.body.classList.remove('theme-light');
-    }
+    applyThemeShared(theme);
   }, []);
 
   // Apply theme immediately when the selection changes (not just on save)
   useEffect(() => {
     applyTheme(localConfig.theme);
-  }, [localConfig.theme, applyTheme]);
+    applyAccent(localConfig.accentColor);
+  }, [localConfig.theme, localConfig.accentColor, applyTheme]);
 
   const loadGithubRateLimit = useCallback(async () => {
     setGithubRateLoading(true);
@@ -426,8 +415,8 @@ export function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-trae-text mb-1">设置</h1>
-        <p className="text-sm text-trae-text-secondary">管理 Skill 路径和主题偏好</p>
+        <h1 className="text-2xl font-semibold text-trae-text mb-1">{t('settings.title')}</h1>
+        <p className="text-sm text-trae-text-secondary">{t('settings.subtitle')}</p>
       </div>
 
       <div className="max-w-lg space-y-6">
@@ -440,22 +429,22 @@ export function SettingsPage() {
           <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <label className="flex items-center gap-2 text-sm text-trae-text mb-2">
               <Folder className="w-4 h-4 text-trae-accent" />
-              TRAE 全局 Skill 目录
+              {t('settings.globalSkillsPath')}
             </label>
             <p className="text-xs text-trae-text-secondary mb-3">
-              TRAE IDE 全局技能存放路径。修改后重新扫描生效。
+              {t('settings.globalSkillsPathHint')}
             </p>
             <input
               type="text"
               value={localConfig.globalSkillsPath}
               onChange={(e) => setLocalConfig({ ...localConfig, globalSkillsPath: e.target.value })}
-              placeholder="自动检测中..."
+              placeholder={t('settings.autoDetecting')}
               className="w-full bg-trae-bg/50 border border-trae-border rounded-lg px-3 py-2 text-sm text-trae-text font-mono focus:outline-none focus:border-trae-accent/50"
             />
             {localConfig.globalSkillsPath && (
               <p className="text-xs text-trae-success mt-2 flex items-center gap-1">
                 <Check className="w-3 h-3" />
-                已检测到路径
+                {t('settings.pathDetected')}
               </p>
             )}
           </div>
@@ -518,7 +507,7 @@ export function SettingsPage() {
           <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
             <label className="flex items-center gap-2 text-sm text-trae-text mb-2">
               {localConfig.theme === 'dark' ? <Moon className="w-4 h-4 text-trae-accent" /> : localConfig.theme === 'light' ? <Sun className="w-4 h-4 text-trae-accent" /> : <Monitor className="w-4 h-4 text-trae-accent" />}
-              主题
+              {t('settings.theme')}
             </label>
             <div className="flex gap-2 mt-2" role="radiogroup" aria-label="主题选择">
               {(['dark', 'light', 'system'] as const).map((theme) => {
@@ -537,9 +526,103 @@ export function SettingsPage() {
                         : 'bg-trae-card/30 text-trae-text-secondary border border-trae-border hover:bg-trae-card/50'
                     }`}
                   >
-                    {theme === 'dark' && '深色'}
-                    {theme === 'light' && '浅色'}
-                    {theme === 'system' && '跟随系统'}
+                    {theme === 'dark' && t('settings.dark')}
+                    {theme === 'light' && t('settings.light')}
+                    {theme === 'system' && t('settings.followSystem')}
+                  </motion.button>
+                );
+              })}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Accent Color */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.14 }}
+        >
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
+            <label className="flex items-center gap-2 text-sm text-trae-text mb-3">
+              <Palette className="w-4 h-4 text-trae-accent" />
+              强调色
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              {ACCENT_PRESETS.map((preset) => {
+                const active = localConfig.accentColor === preset.triplet;
+                return (
+                  <motion.button
+                    key={preset.hex}
+                    title={preset.name}
+                    onClick={() => setLocalConfig({ ...localConfig, accentColor: preset.triplet })}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className={`w-7 h-7 rounded-full border-2 transition-all ${
+                      active ? 'border-trae-text scale-110' : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: preset.hex }}
+                  />
+                );
+              })}
+              <label
+                className="relative w-7 h-7 rounded-full border-2 border-trae-border cursor-pointer overflow-hidden"
+                title="自定义颜色"
+              >
+                <input
+                  type="color"
+                  value={
+                    localConfig.accentColor?.startsWith('#')
+                      ? localConfig.accentColor
+                      : ACCENT_PRESETS[0].hex
+                  }
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      accentColor: hexToTriplet(e.target.value),
+                    })
+                  }
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+                <span className="absolute inset-0 flex items-center justify-center text-[10px] text-trae-text-secondary">
+                  +
+                </span>
+              </label>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Language */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.145 }}
+        >
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
+            <label className="flex items-center gap-2 text-sm text-trae-text mb-2">
+              <Languages className="w-4 h-4 text-trae-accent" />
+              {t('settings.language')}
+            </label>
+            <p className="text-xs text-trae-text-secondary mb-3">
+              {t('settings.languageHint')}
+            </p>
+            <div className="flex gap-2 mt-2" role="radiogroup" aria-label="语言选择">
+              {UI_LANGUAGE_OPTIONS.map((opt) => {
+                const active = langSetting === opt.value;
+                return (
+                  <motion.button
+                    key={opt.value}
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setLangSetting(opt.value)}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    className={`px-4 py-2 rounded-lg text-sm transition-all ${
+                      active
+                        ? 'bg-trae-accent/15 text-trae-accent border border-trae-accent/20'
+                        : 'bg-trae-card/30 text-trae-text-secondary border border-trae-border hover:bg-trae-card/50'
+                    }`}
+                  >
+                    {opt.label}
                   </motion.button>
                 );
               })}
@@ -699,6 +782,7 @@ export function SettingsPage() {
             </label>
             <p className="text-xs text-trae-text-secondary mb-4">
               配置 AI API 后，可自动翻译 Skill 描述为指定语言。支持任意 OpenAI-compatible API。
+              未启用时，Skill 描述会默认展示基于内置技术词库的「术语对照」（本地翻译，无需联网）。
             </p>
 
             <div className="space-y-4">
@@ -981,7 +1065,7 @@ export function SettingsPage() {
           }`}
         >
           <Save className="w-4 h-4" aria-hidden="true" />
-          {saved ? '已保存' : '保存设置'}
+          {saved ? t('common.saved') : t('settings.save')}
         </motion.button>
       </div>
     </div>

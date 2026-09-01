@@ -4,6 +4,9 @@
 
 :root {
   color-scheme: dark;
+  /* 强调色三元组（r,g,b），由 src/lib/theme.ts 动态覆盖 */
+  --trae-accent: 0, 255, 136;
+  --trae-accent-deep: 0, 204, 106;
 }
 
 body {
@@ -143,6 +146,9 @@ body.theme-light {
   background-color: #f5f5f5 !important;
   color: #1a1a1a !important;
   color-scheme: light;
+  /* 亮色下强调色取更深的同色系（跟随 --trae-accent） */
+  --trae-accent: 4, 120, 87;
+  --trae-accent-deep: 6, 95, 70;
 }
 
 /* Backgrounds */
@@ -153,18 +159,18 @@ body.theme-light .bg-trae-card\/40 { background-color: rgba(255,255,255,0.8) !im
 body.theme-light .bg-trae-card\/50 { background-color: rgba(255,255,255,0.9) !important; }
 body.theme-light .bg-trae-card\/60 { background-color: rgba(255,255,255,0.95) !important; }
 
-/* Accent backgrounds - softer emerald tones for light mode */
-body.theme-light .bg-trae-accent\/5 { background-color: rgba(5, 150, 105, 0.04) !important; }
-body.theme-light .bg-trae-accent\/10 { background-color: rgba(5, 150, 105, 0.07) !important; }
-body.theme-light .bg-trae-accent\/15 { background-color: rgba(5, 150, 105, 0.10) !important; }
-body.theme-light .bg-trae-accent\/20 { background-color: rgba(5, 150, 105, 0.14) !important; }
-body.theme-light .bg-trae-accent\/25 { background-color: rgba(5, 150, 105, 0.18) !important; }
-body.theme-light .bg-trae-accent\/30 { background-color: rgba(5, 150, 105, 0.22) !important; }
+/* Accent backgrounds - softer tones for light mode (follow --trae-accent) */
+body.theme-light .bg-trae-accent\/5 { background-color: color-mix(in srgb, rgb(var(--trae-accent)) 4%, transparent) !important; }
+body.theme-light .bg-trae-accent\/10 { background-color: color-mix(in srgb, rgb(var(--trae-accent)) 7%, transparent) !important; }
+body.theme-light .bg-trae-accent\/15 { background-color: color-mix(in srgb, rgb(var(--trae-accent)) 10%, transparent) !important; }
+body.theme-light .bg-trae-accent\/20 { background-color: color-mix(in srgb, rgb(var(--trae-accent)) 14%, transparent) !important; }
+body.theme-light .bg-trae-accent\/25 { background-color: color-mix(in srgb, rgb(var(--trae-accent)) 18%, transparent) !important; }
+body.theme-light .bg-trae-accent\/30 { background-color: color-mix(in srgb, rgb(var(--trae-accent)) 22%, transparent) !important; }
 
 /* Text colors */
 body.theme-light .text-trae-text { color: #1a1a1a !important; }
 body.theme-light .text-trae-text-secondary { color: #6b7280 !important; }
-body.theme-light .text-trae-accent { color: #047857 !important; }
+body.theme-light .text-trae-accent { color: rgb(var(--trae-accent)) !important; }
 
 /* Text colors with opacity (for detail panel, rendered markdown, etc.) */
 body.theme-light .text-trae-text\/80 { color: rgba(26, 26, 26, 0.8) !important; }
@@ -176,19 +182,19 @@ body.theme-light .text-trae-text-secondary\/70 { color: rgba(107, 114, 128, 0.7)
 /* Borders */
 body.theme-light .border-trae-border { border-color: #d1d5db !important; }
 body.theme-light .border-trae-border-hover { border-color: #9ca3af !important; }
-body.theme-light .border-trae-accent\/20 { border-color: rgba(5, 150, 105, 0.15) !important; }
-body.theme-light .border-trae-accent\/30 { border-color: rgba(5, 150, 105, 0.25) !important; }
+body.theme-light .border-trae-accent\/20 { border-color: color-mix(in srgb, rgb(var(--trae-accent)) 15%, transparent) !important; }
+body.theme-light .border-trae-accent\/30 { border-color: color-mix(in srgb, rgb(var(--trae-accent)) 25%, transparent) !important; }
 
 /* Success / Danger */
-body.theme-light .text-trae-success { color: #047857 !important; }
+body.theme-light .text-trae-success { color: rgb(var(--trae-accent)) !important; }
 body.theme-light .text-trae-danger { color: #dc2626 !important; }
-body.theme-light .bg-trae-success\/10 { background-color: rgba(5, 150, 105, 0.06) !important; }
-body.theme-light .bg-trae-success\/20 { background-color: rgba(5, 150, 105, 0.12) !important; }
+body.theme-light .bg-trae-success\/10 { background-color: color-mix(in srgb, rgb(var(--trae-accent)) 6%, transparent) !important; }
+body.theme-light .bg-trae-success\/20 { background-color: color-mix(in srgb, rgb(var(--trae-accent)) 12%, transparent) !important; }
 body.theme-light .bg-trae-danger\/10 { background-color: rgba(220, 38, 38, 0.06) !important; }
 body.theme-light .bg-trae-danger\/15 { background-color: rgba(220, 38, 38, 0.10) !important; }
 body.theme-light .bg-trae-danger\/20 { background-color: rgba(220, 38, 38, 0.14) !important; }
-body.theme-light .border-trae-success\/20 { border-color: rgba(5, 150, 105, 0.15) !important; }
-body.theme-light .border-trae-success\/30 { border-color: rgba(5, 150, 105, 0.25) !important; }
+body.theme-light .border-trae-success\/20 { border-color: color-mix(in srgb, rgb(var(--trae-accent)) 15%, transparent) !important; }
+body.theme-light .border-trae-success\/30 { border-color: color-mix(in srgb, rgb(var(--trae-accent)) 25%, transparent) !important; }
 body.theme-light .border-trae-danger\/20 { border-color: rgba(220, 38, 38, 0.15) !important; }
 body.theme-light .border-trae-danger\/30 { border-color: rgba(220, 38, 38, 0.25) !important; }
 
@@ -218,14 +224,14 @@ body.theme-light .hover\:bg-trae-card\/40:hover { background-color: rgba(255,255
 body.theme-light .hover\:bg-trae-card\/50:hover { background-color: rgba(255,255,255,1) !important; }
 body.theme-light .hover\:bg-trae-card\/60:hover { background-color: rgba(255,255,255,1) !important; }
 body.theme-light .hover\:text-trae-text:hover { color: #1a1a1a !important; }
-body.theme-light .hover\:text-trae-accent:hover { color: #065f46 !important; }
-body.theme-light .hover\:border-trae-accent\/20:hover { border-color: rgba(5, 150, 105, 0.2) !important; }
-body.theme-light .hover\:border-trae-accent\/30:hover { border-color: rgba(5, 150, 105, 0.3) !important; }
+body.theme-light .hover\:text-trae-accent:hover { color: rgb(var(--trae-accent-deep)) !important; }
+body.theme-light .hover\:border-trae-accent\/20:hover { border-color: color-mix(in srgb, rgb(var(--trae-accent)) 20%, transparent) !important; }
+body.theme-light .hover\:border-trae-accent\/30:hover { border-color: color-mix(in srgb, rgb(var(--trae-accent)) 30%, transparent) !important; }
 
 /* Focus states */
-body.theme-light .focus\:border-trae-accent\/40:focus { border-color: rgba(5, 150, 105, 0.35) !important; }
-body.theme-light .focus\:border-trae-accent\/50:focus { border-color: rgba(5, 150, 105, 0.45) !important; }
-body.theme-light .focus\:ring-trae-accent\/20:focus { --tw-ring-color: rgba(5, 150, 105, 0.15) !important; }
+body.theme-light .focus\:border-trae-accent\/40:focus { border-color: color-mix(in srgb, rgb(var(--trae-accent)) 35%, transparent) !important; }
+body.theme-light .focus\:border-trae-accent\/50:focus { border-color: color-mix(in srgb, rgb(var(--trae-accent)) 45%, transparent) !important; }
+body.theme-light .focus\:ring-trae-accent\/20:focus { --tw-ring-color: color-mix(in srgb, rgb(var(--trae-accent)) 15%, transparent) !important; }
 
 /* Code blocks */
 body.theme-light code {
@@ -239,7 +245,7 @@ body.theme-light pre {
 
 /* Checkbox accent */
 body.theme-light input[type="checkbox"] {
-  accent-color: #047857 !important;
+  accent-color: rgb(var(--trae-accent)) !important;
 }
 
 /* ─── Detail panel rendered HTML fixes for light mode ────────────────────── */
@@ -256,11 +262,11 @@ body.theme-light .prose-sm li {
   color: rgba(26, 26, 26, 0.8) !important;
 }
 body.theme-light .prose-sm a {
-  color: #047857 !important;
+  color: rgb(var(--trae-accent)) !important;
 }
 body.theme-light .prose-sm p {
   color: rgba(26, 26, 26, 0.8) !important;
 }
 body.theme-light .prose-sm code {
-  color: #047857 !important;
+  color: rgb(var(--trae-accent)) !important;
 }

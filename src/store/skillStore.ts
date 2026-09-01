@@ -270,6 +270,8 @@ const DEFAULT_CONFIG: AppConfig = {
   globalSkillsPath: '',
   projectPath: '',
   theme: 'dark',
+  accentColor: '0,255,136',
+  language: 'system',
   activeToolId: 'trae',
   translation: {
     enabled: false,

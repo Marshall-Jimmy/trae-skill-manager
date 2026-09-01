@@ -23,6 +23,9 @@ import {
 import { HelpMenu, type HelpMenuItem } from './HelpMenu';
 import { RunningAppsSwitcher } from './RunningAppsSwitcher';
 import { ProcessBrowserDialog } from './ProcessBrowserDialog';
+import { UpdateDialog } from './UpdateDialog';
+import { t } from '../lib/i18n';
+import { useLang } from '../store/i18nStore';
 
 interface TitleBarProps {
   sidebarCollapsed: boolean;
@@ -36,7 +39,9 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: Tit
   const [isMaximized, setIsMaximized] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [processBrowserOpen, setProcessBrowserOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
   const helpButtonRef = useRef<HTMLButtonElement>(null);
+  useLang();
   // In a plain browser (vite dev without tauri) the window API is unavailable.
   const appWindow = '__TAURI_INTERNALS__' in window ? getCurrentWindow() : null;
 
@@ -86,59 +91,59 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: Tit
   const helpItems: HelpMenuItem[] = [
     {
       id: 'changelog',
-      label: '显示更新日志',
+      label: t('titlebar.changelog'),
       icon: BookOpen,
       onClick: () => openUrl(`${GITHUB_REPO}/commits`),
     },
     {
       id: 'devtools',
-      label: '切换开发人员工具',
+      label: t('titlebar.devtools'),
       icon: Terminal,
       shortcut: 'Ctrl+Shift+I',
       onClick: () => invoke('toggle_devtools').catch(() => {}),
     },
     {
       id: 'report',
-      label: '报告问题',
+      label: t('titlebar.report'),
       icon: Bug,
       shortcut: 'Ctrl+K Ctrl+R',
       onClick: () => openUrl(`${GITHUB_REPO}/issues`),
     },
     {
       id: 'process',
-      label: '进程浏览器',
+      label: t('titlebar.process'),
       icon: Cpu,
       onClick: () => setProcessBrowserOpen(true),
     },
     { id: 'sep-1', label: '', icon: Book, separator: true, onClick: () => {} },
     {
       id: 'docs',
-      label: '帮助文档',
+      label: t('titlebar.docs'),
       icon: Book,
       onClick: () => openUrl(`${GITHUB_REPO}#readme`),
     },
     {
       id: 'contact',
-      label: '联系我们',
+      label: t('titlebar.contact'),
       icon: Mail,
       onClick: () => openUrl(`${GITHUB_REPO}/issues`),
     },
     {
       id: 'logs',
-      label: '在文件夹中打开日志',
+      label: t('titlebar.logs'),
       icon: FolderOpen,
       onClick: handleOpenLogs,
     },
     { id: 'sep-2', label: '', icon: Book, separator: true, onClick: () => {} },
     {
       id: 'update',
-      label: '检查更新...',
+      label: t('titlebar.checkUpdate'),
       icon: RefreshCw,
-      onClick: () => openUrl(`${GITHUB_REPO}/releases`),
+      onClick: () => setUpdateOpen(true),
     },
     {
       id: 'about',
-      label: '关于...',
+      label: t('titlebar.about'),
       icon: Info,
       onClick: onShowAbout,
     },
@@ -225,6 +230,10 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar, onShowAbout }: Tit
     <ProcessBrowserDialog
       open={processBrowserOpen}
       onClose={() => setProcessBrowserOpen(false)}
+    />
+    <UpdateDialog
+      open={updateOpen}
+      onClose={() => setUpdateOpen(false)}
     />
     </>
   );

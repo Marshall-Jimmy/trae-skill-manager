@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Download, TrendingUp, ExternalLink, Languages, Check, Copy, Star, Heart, Tag, Github, Scale } from 'lucide-react';
 import { useSkillStore, getSkillTags } from '../store/skillStore';
+import { translateWithGlossary } from '../lib/glossary';
 import { Checkbox } from './Checkbox';
 import type { RemoteSkill } from '../types';
 import { useMotionConfig } from '../lib/motionConfig';
@@ -36,7 +37,11 @@ export function SkillCard({
   const { config, getTranslatedDescription, localSkills, toggleFavorite, isFavorite, toggleTag, selectedTags } = useSkillStore();
   const { getTransition } = useMotionConfig();
   const translatedDesc = skill.description ? getTranslatedDescription(skill.description) : undefined;
-  const showTranslation = config.translation.enabled && translatedDesc;
+  const glossaryTranslated = skill.description ? translateWithGlossary(skill.description) : undefined;
+  const glossaryMeaningful = !!glossaryTranslated && glossaryTranslated !== skill.description;
+  // LLM 翻译未启用（或无缓存）时回退到本地词库对照展示（B 方案）
+  const showTranslation = (config.translation.enabled && translatedDesc) || glossaryMeaningful;
+  const displayTranslated = translatedDesc || glossaryTranslated;
 
   const tags = getSkillTags(skill);
   const isFav = isFavorite(skill.id);
@@ -357,7 +362,7 @@ export function SkillCard({
                       {showTranslation && (
                         <p className="text-xs text-trae-accent line-clamp-1 flex items-start gap-1">
                           <Languages className="w-3 h-3 shrink-0 mt-0.5" />
-                          {translatedDesc}
+                          {displayTranslated}
                         </p>
                       )}
                     </>

@@ -28,6 +28,7 @@ import {
   Scale,
 } from 'lucide-react';
 import { useSkillStore } from '../store/skillStore';
+import { translateWithGlossary, hasMeaningfulGlossaryTranslation } from '../lib/glossary';
 import { FileBrowser } from './FileBrowser';
 import type { RemoteSkill, SkillFile, FileEntry, LocalSkill, RepoInfo } from '../types';
 
@@ -307,7 +308,11 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
   const [docError, setDocError] = useState<string | null>(null);
   const [descError, setDescError] = useState<string | null>(null);
   const effectiveTranslatedDesc = liveTranslatedDesc || translatedDesc;
-  const showTranslation = config.translation.enabled && (effectiveTranslatedDesc || translatingDesc);
+  const glossaryTranslated = skill?.description ? translateWithGlossary(skill.description) : undefined;
+  const glossaryMeaningful = !!skill?.description && hasMeaningfulGlossaryTranslation(skill.description);
+  // LLM 翻译启用时优先展示 LLM 结果；未启用（或暂无结果）时回退到本地词库对照展示（B 方案）
+  const showTranslation =
+    (config.translation.enabled && (effectiveTranslatedDesc || translatingDesc)) || glossaryMeaningful;
 
   const isFav = skill ? store.isFavorite(skill.id) : false;
 
@@ -745,7 +750,7 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
                       <div className="mb-4 p-3 bg-trae-accent/5 border border-trae-accent/20 rounded-lg">
                         <div className="flex items-center gap-1 text-xs text-trae-accent mb-1">
                           <Languages className="w-3 h-3" />
-                          翻译
+                          {config.translation.enabled ? '翻译' : '术语对照'}
                           {translatingDesc && (
                             <Loader2 className="w-3 h-3 animate-spin ml-1" />
                           )}
@@ -756,6 +761,8 @@ export function SkillDetailPanel({ skill, localSkill, onClose, onSkillClick }: S
                           <p className="text-xs text-trae-text-secondary">正在翻译...</p>
                         ) : descError ? (
                           <p className="text-xs text-trae-danger leading-relaxed">{descError}</p>
+                        ) : glossaryMeaningful ? (
+                          <p className="text-xs text-trae-text leading-relaxed">{glossaryTranslated}</p>
                         ) : null}
                       </div>
                     )}

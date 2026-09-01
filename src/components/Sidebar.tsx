@@ -17,12 +17,17 @@ import {
   MoreHorizontal,
   Tag,
   Link2,
+  Stethoscope,
+  Network,
+  Boxes,
 } from 'lucide-react';
 import { useSkillStore } from '../store/skillStore';
 import { CATEGORIES } from '../types';
 import { useMotionConfig } from '../lib/motionConfig';
+import { t } from '../lib/i18n';
+import { useLang } from '../store/i18nStore';
 
-export type TabId = 'discover' | 'installed' | 'mcp' | 'sync' | 'history' | 'settings';
+export type TabId = 'discover' | 'installed' | 'mcp' | 'sync' | 'history' | 'settings' | 'diagnosis' | 'graph' | 'preset';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -31,13 +36,16 @@ interface SidebarProps {
   collapsed: boolean;
 }
 
-const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
-  { id: 'discover', label: '发现', icon: Compass },
-  { id: 'installed', label: '已安装', icon: Package },
-  { id: 'sync', label: '同步', icon: Link2 },
-  { id: 'mcp', label: 'MCP', icon: Server },
-  { id: 'history', label: '历史', icon: History },
-  { id: 'settings', label: '设置', icon: Settings },
+const tabs: { id: TabId; labelKey: string; icon: React.ElementType }[] = [
+  { id: 'discover', labelKey: 'nav.discover', icon: Compass },
+  { id: 'installed', labelKey: 'nav.installed', icon: Package },
+  { id: 'sync', labelKey: 'nav.sync', icon: Link2 },
+  { id: 'mcp', labelKey: 'nav.mcp', icon: Server },
+  { id: 'diagnosis', labelKey: 'nav.diagnosis', icon: Stethoscope },
+  { id: 'graph', labelKey: 'nav.graph', icon: Network },
+  { id: 'preset', labelKey: 'nav.preset', icon: Boxes },
+  { id: 'history', labelKey: 'nav.history', icon: History },
+  { id: 'settings', labelKey: 'nav.settings', icon: Settings },
 ];
 
 const categoryIconMap: Record<string, React.ElementType> = {
@@ -82,7 +90,7 @@ function CategorySection() {
     <div className="mt-4 pt-4 border-t border-trae-border min-h-0 flex flex-col">
       {/* Categories */}
       <div className="text-[11px] font-semibold text-trae-text-secondary/60 uppercase tracking-wider px-3 mb-2">
-        分类
+        {t('nav.categories')}
       </div>
       <div className="space-y-0.5 overflow-y-auto overflow-x-hidden pr-1">
         {CATEGORIES.map((cat, i) => {
@@ -128,14 +136,14 @@ function CategorySection() {
           <div className="flex items-center justify-between px-3 mb-2">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-trae-text-secondary/60 uppercase tracking-wider">
               <Tag className="w-3 h-3" />
-              热门标签
+              {t('nav.hotTags')}
             </div>
             {selectedTags.length > 0 && (
               <button
                 onClick={clearTags}
                 className="text-[10px] text-trae-text-secondary hover:text-trae-accent transition-colors"
               >
-                清除
+                {t('nav.clear')}
               </button>
             )}
           </div>
@@ -172,6 +180,7 @@ function CategorySection() {
 export function Sidebar({ activeTab, onTabChange, onCustomInstall, collapsed }: SidebarProps) {
   const searchMode = useSkillStore((s) => s.searchMode);
   const showCategories = activeTab === 'discover' && searchMode === 'official';
+  useLang();
 
   return (
     <aside
@@ -183,13 +192,14 @@ export function Sidebar({ activeTab, onTabChange, onCustomInstall, collapsed }: 
       <nav className="flex flex-col gap-1 p-2 shrink-0" role="tablist" aria-label="主导航">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
+          const label = t(tab.labelKey);
           return (
             <motion.button
               key={tab.id}
               role="tab"
               aria-selected={isActive}
-              aria-label={tab.label}
-              title={collapsed ? tab.label : undefined}
+              aria-label={label}
+              title={collapsed ? label : undefined}
               onClick={() => onTabChange(tab.id)}
               whileHover={{ x: collapsed ? 0 : 3, transition: { type: 'spring' as const, stiffness: 400, damping: 25 } }}
               whileTap={{ scale: 0.97, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } }}
@@ -202,7 +212,7 @@ export function Sidebar({ activeTab, onTabChange, onCustomInstall, collapsed }: 
               }`}
             >
               <tab.icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-              {!collapsed && <span>{tab.label}</span>}
+              {!collapsed && <span>{label}</span>}
             </motion.button>
           );
         })}
@@ -230,7 +240,7 @@ export function Sidebar({ activeTab, onTabChange, onCustomInstall, collapsed }: 
             className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-trae-text-secondary hover:text-trae-accent hover:bg-trae-accent/5 transition-colors duration-200"
           >
             <Plus className="w-4 h-4" aria-hidden="true" />
-            <span>自定义安装</span>
+            <span>{t('nav.customInstall')}</span>
           </motion.button>
         </motion.div>
       )}

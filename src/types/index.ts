@@ -220,10 +220,95 @@ export interface AppConfig {
   globalSkillsPath: string;
   projectPath: string;
   theme: string;
+  /** 强调色（"r,g,b" 三元组或 #hex），Phase 8.4 主题自定义 */
+  accentColor?: string;
+  /** 界面语言（"zh" | "en" | "system"），Phase 8.2 多语言 */
+  language?: string;
   translation: TranslationConfig;
   github: GithubConfig;
   /** 当前目标工具（Phase 3 Tool Adapter），默认 "trae" */
   activeToolId: string;
+}
+
+// ─── Skill Diagnosis (Phase 7.1 健康度诊断) ───────────────────────────────
+
+export interface DiagnosisTokenCost {
+  totalTokens: number;
+  skillCount: number;
+  fileCount: number;
+  avgTokensPerSkill: number;
+  topSkills: { name: string; tokens: number }[];
+}
+
+export interface DiagnosisConflict {
+  name: string;
+  paths: string[];
+}
+
+export interface DiagnosisZombie {
+  path: string;
+  name: string;
+  reason: string;
+}
+
+export interface DiagnosisQualityIssue {
+  code: string;
+  message: string;
+}
+
+export interface DiagnosisQuality {
+  name: string;
+  path: string;
+  score: number;
+  issues: DiagnosisQualityIssue[];
+}
+
+export interface SkillDiagnosisResult {
+  tokenCost: DiagnosisTokenCost;
+  conflicts: DiagnosisConflict[];
+  zombies: DiagnosisZombie[];
+  quality: DiagnosisQuality[];
+  summary: {
+    total: number;
+    healthy: number;
+    warnings: number;
+    errors: number;
+  };
+}
+
+export interface TelemetryConfig {
+  enabled: boolean;
+}
+
+// ─── Skill Preset (Phase 7.3 技能栈配方) ───────────────────────────────────
+
+export interface PresetSkillRef {
+  name: string;
+  source: string;
+  description?: string;
+}
+
+export interface SkillPreset {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  skills: PresetSkillRef[];
+  tags?: string[];
+  createdAt?: number;
+  /** 内置官方配方为 true，用户自建为 false */
+  builtIn?: boolean;
+}
+
+// ─── App Update (Phase 8.1 自动更新) ───────────────────────────────────────
+
+export interface AppUpdateInfo {
+  available: boolean;
+  version?: string;
+  currentVersion?: string;
+  notes?: string;
+  pubDate?: string;
+  downloadUrl?: string;
 }
 
 // ─── Tool Status (from Tool Adapter registry) ─────────────────────────────

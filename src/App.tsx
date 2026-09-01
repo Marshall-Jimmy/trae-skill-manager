@@ -10,6 +10,7 @@ import { useSkillStore } from './store/skillStore';
 import { useMcpStore } from './store/mcpStore';
 import { useMotionConfig } from './lib/motionConfig';
 import { windowEntry } from './lib/animations';
+import { applyTheme, applyAccent } from './lib/theme';
 import type { RemoteSkill } from './types';
 import { RefreshCw, Copy, ClipboardPaste, ScanText, Settings, Info, LogOut } from 'lucide-react';
 
@@ -21,9 +22,12 @@ const SyncPage = lazy(() => import('./components/SyncPage').then((m) => ({ defau
 const McpPage = lazy(() => import('./components/McpPage').then((m) => ({ default: m.McpPage })));
 const HistoryPage = lazy(() => import('./components/HistoryPage').then((m) => ({ default: m.HistoryPage })));
 const SettingsPage = lazy(() => import('./components/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const DiagnosisPage = lazy(() => import('./components/DiagnosisPage').then((m) => ({ default: m.DiagnosisPage })));
+const GraphPage = lazy(() => import('./components/GraphPage').then((m) => ({ default: m.GraphPage })));
+const PresetPage = lazy(() => import('./components/PresetPage').then((m) => ({ default: m.PresetPage })));
 
 const SESSION_KEY = 'trae-skill-manager-session';
-const VALID_TABS: TabId[] = ['discover', 'installed', 'sync', 'mcp', 'history', 'settings'];
+const VALID_TABS: TabId[] = ['discover', 'installed', 'sync', 'mcp', 'history', 'settings', 'diagnosis', 'graph', 'preset'];
 
 function loadActiveTab(): TabId {
   try {
@@ -169,6 +173,7 @@ function App() {
       await useSkillStore.getState().loadConfig();
       const config = useSkillStore.getState().config;
       applyTheme(config.theme);
+      applyAccent(config.accentColor);
 
       // Load tool adapters status (installed / running)
       await useSkillStore.getState().loadToolsStatus();
@@ -220,33 +225,6 @@ function App() {
     };
   }, []);
 
-  const applyTheme = (theme: string) => {
-    // Always clean up an existing system theme listener first.
-    const oldHandler = (window as any).__themeHandler;
-    if (oldHandler) {
-      window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', oldHandler);
-      (window as any).__themeHandler = undefined;
-    }
-
-    if (theme === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
-      const handler = (e: MediaQueryListEvent | MediaQueryList) => {
-        if (e.matches) {
-          document.body.classList.remove('theme-light');
-        } else {
-          document.body.classList.add('theme-light');
-        }
-      };
-      handler(prefersDark);
-      prefersDark.addEventListener('change', handler);
-      (window as any).__themeHandler = handler;
-    } else if (theme === 'light') {
-      document.body.classList.add('theme-light');
-    } else {
-      document.body.classList.remove('theme-light');
-    }
-  };
-
   // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -261,15 +239,18 @@ function App() {
         }
       }
 
-      // Ctrl+1/2/3/4/5/6: Switch tabs
+      // Ctrl+1/2/3/4/5/6/7/8/9: Switch tabs
       if (e.ctrlKey || e.metaKey) {
         const tabMap: Record<string, TabId> = {
           '1': 'discover',
           '2': 'installed',
           '3': 'sync',
           '4': 'mcp',
-          '5': 'history',
-          '6': 'settings',
+          '5': 'diagnosis',
+          '6': 'graph',
+          '7': 'preset',
+          '8': 'history',
+          '9': 'settings',
         };
         const targetTab = tabMap[e.key];
         if (targetTab) {
@@ -433,6 +414,48 @@ function App() {
             >
               <Suspense fallback={<PageFallback />}>
                 <McpPage />
+              </Suspense>
+            </motion.div>
+          )}
+          {activeTab === 'diagnosis' && (
+            <motion.div
+              key="diagnosis"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={pageTransition}
+              className="h-full"
+            >
+              <Suspense fallback={<PageFallback />}>
+                <DiagnosisPage />
+              </Suspense>
+            </motion.div>
+          )}
+          {activeTab === 'graph' && (
+            <motion.div
+              key="graph"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={pageTransition}
+              className="h-full"
+            >
+              <Suspense fallback={<PageFallback />}>
+                <GraphPage />
+              </Suspense>
+            </motion.div>
+          )}
+          {activeTab === 'preset' && (
+            <motion.div
+              key="preset"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={pageTransition}
+              className="h-full"
+            >
+              <Suspense fallback={<PageFallback />}>
+                <PresetPage />
               </Suspense>
             </motion.div>
           )}
