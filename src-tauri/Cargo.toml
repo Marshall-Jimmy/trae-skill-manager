@@ -25,6 +25,7 @@ dirs = "5"
 urlencoding = "2"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+sysinfo = "0.39.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

@@ -238,6 +238,16 @@ export interface ToolStatus {
   projectDir: string;
 }
 
+// ─── Running Tool (Phase 4 进程检测) ───────────────────────────────────────
+
+export interface RunningTool {
+  toolId: string;
+  pid: number;
+  exePath?: string | null;
+  cwd?: string | null;
+  workspaceHint?: string | null;
+}
+
 // ─── Install Result ───────────────────────────────────────────────────────────
 
 export interface InstallResult {

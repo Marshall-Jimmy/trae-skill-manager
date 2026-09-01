@@ -20,6 +20,7 @@ import type {
   DiscoverTab,
   Project,
   ToolStatus,
+  RunningTool,
 } from '../types';
 
 // ─── Sort options ─────────────────────────────────────────────────────────
@@ -57,6 +58,9 @@ interface SkillState {
   // Tool Adapter (Phase 3)
   activeToolId: string;
   toolsStatus: ToolStatus[];
+
+  // Running tools (Phase 4 进程检测)
+  runningTools: RunningTool[];
 
   // Selection
   selectedSkills: Set<string>;
@@ -168,6 +172,7 @@ interface SkillActions {
   loadConfig: () => Promise<void>;
   updateConfig: (config: AppConfig) => Promise<void>;
   loadToolsStatus: () => Promise<void>;
+  loadRunningTools: () => Promise<void>;
   switchTool: (toolId: string) => Promise<void>;
   getActiveTool: () => ToolStatus | undefined;
   getActiveSkillsPath: () => string;
@@ -734,6 +739,7 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
   config: DEFAULT_CONFIG,
   activeToolId: 'trae',
   toolsStatus: [],
+  runningTools: [],
 
   selectedSkills: new Set<string>(),
 
@@ -1232,6 +1238,15 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
       set({ toolsStatus: status });
     } catch (e) {
       console.error('Failed to load tools status:', e);
+    }
+  },
+
+  loadRunningTools: async () => {
+    try {
+      const running = await invoke<RunningTool[]>('detect_running_tools');
+      set({ runningTools: running });
+    } catch (e) {
+      console.error('Failed to load running tools:', e);
     }
   },
 

@@ -79,6 +79,10 @@ fn scan_project_skills(project_path: String, tool_id: Option<String>) -> Result<
 
 #[tauri::command(rename_all = "camelCase")]
 fn get_tools_status() -> Vec<models::ToolStatus> {
+    let running: std::collections::HashSet<String> = commands::process::detect_running_tools_internal()
+        .into_iter()
+        .map(|t| t.tool_id)
+        .collect();
     tools::all_tools()
         .iter()
         .map(|t| models::ToolStatus {
@@ -86,7 +90,7 @@ fn get_tools_status() -> Vec<models::ToolStatus> {
             display_name: t.display_name().to_string(),
             icon: t.icon().to_string(),
             installed: t.detect_installed(),
-            running: t.detect_running().is_some(),
+            running: running.contains(t.id()),
             global_dir: t.global_dir().map(|p| p.to_string_lossy().to_string()),
             project_dir: t.adapter().project_dir.to_string(),
         })
@@ -594,6 +598,7 @@ fn main() {
             scan_local_skills,
             scan_project_skills,
             get_tools_status,
+            commands::process::detect_running_tools,
             fetch_skills,
             search_skills,
             fetch_skill_detail,

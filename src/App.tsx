@@ -5,6 +5,7 @@ import { Sidebar, type TabId } from './components/Sidebar';
 import { ProjectSwitcher } from './components/ProjectSwitcher';
 import { ToolSelector } from './components/ToolSelector';
 import { TitleBar } from './components/TitleBar';
+import { RunningToolsBar } from './components/RunningToolsBar';
 import { ContextMenu, type ContextMenuItem } from './components/ContextMenu';
 import { AboutDialog } from './components/AboutDialog';
 import { useSkillStore } from './store/skillStore';
@@ -172,6 +173,7 @@ function App() {
 
       // Load tool adapters status (installed / running)
       await useSkillStore.getState().loadToolsStatus();
+      await useSkillStore.getState().loadRunningTools();
 
       // Load local skills
       await useSkillStore.getState().loadLocalSkills();
@@ -202,6 +204,21 @@ function App() {
       }
     };
     initApp();
+  }, []);
+
+  // Phase 4: 每 30 秒轮询运行中的工具，用户切回窗口时立即刷新一次。
+  useEffect(() => {
+    const refresh = () => {
+      useSkillStore.getState().loadRunningTools();
+      useSkillStore.getState().loadToolsStatus();
+    };
+    const timer = setInterval(refresh, 30_000);
+    const onFocus = () => refresh();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   const applyTheme = (theme: string) => {
@@ -339,6 +356,7 @@ function App() {
         onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
         onShowAbout={() => setShowAbout(true)}
       />
+      <RunningToolsBar />
       <div className="flex flex-1 overflow-hidden">
       <Sidebar
         activeTab={activeTab}

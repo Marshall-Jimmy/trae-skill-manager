@@ -253,6 +253,18 @@ pub struct ToolStatus {
     pub project_dir: String,
 }
 
+// ─── Running Tool (Phase 4 进程检测) ───────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningTool {
+    pub tool_id: String,
+    pub pid: u32,
+    pub exe_path: Option<String>,
+    pub cwd: Option<String>,
+    pub workspace_hint: Option<String>,
+}
+
 // ─── Install Output Event (streamed to frontend) ──────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
