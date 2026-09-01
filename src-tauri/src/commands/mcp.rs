@@ -1,23 +1,11 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+pub use skills_core::models::McpConnectionConfig;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 // ─── Shared types ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpConnectionConfig {
-    pub name: String,
-    pub command: String,
-    pub args: Vec<String>,
-    pub env: HashMap<String, String>,
-    pub cwd: Option<String>,
-    pub config_type: String,
-    pub url: Option<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

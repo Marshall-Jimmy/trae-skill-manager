@@ -1,15 +1,2 @@
-pub mod path;
-
-/// Return the correct npx executable name for the current platform.
-/// On Windows, bare `npx` resolves to a `.ps1` script that Rust's process
-/// spawn cannot execute ("program not found"), so use `npx.cmd` explicitly.
-pub fn npx_program() -> &'static str {
-    #[cfg(windows)]
-    {
-        "npx.cmd"
-    }
-    #[cfg(not(windows))]
-    {
-        "npx"
-    }
-}
+//! 工具函数（Phase 9.2 抽取后统一来自 skills-core）。
+pub use skills_core::utils::*;
