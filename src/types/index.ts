@@ -228,6 +228,18 @@ export interface AppConfig {
   github: GithubConfig;
   /** 当前目标工具（Phase 3 Tool Adapter），默认 "trae" */
   activeToolId: string;
+  /** 本地 HTTP 网关配置（Phase 9.1），默认关闭 */
+  localApi: LocalApiConfig;
+}
+
+// ─── Local API Config (Phase 9.1 本地 HTTP 网关) ───────────────────────────
+
+export interface LocalApiConfig {
+  /** 是否启用本地 HTTP 网关（默认关闭，仅显式开启时启动） */
+  enabled: boolean;
+  port: number;
+  /** Bearer token，首次启用时自动生成并持久化 */
+  token: string;
 }
 
 // ─── Skill Diagnosis (Phase 7.1 健康度诊断) ───────────────────────────────

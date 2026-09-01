@@ -28,6 +28,8 @@ urlencoding = "2"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 sysinfo = "0.39.6"
+getrandom = "0.2"
+tower-http = { version = "0.6", features = ["cors"] }
 # 启用 formatting feature 以支持 OffsetDateTime::to_rfc3339（updater 的 pub_date）
 time = { version = "0.3", features = ["formatting"] }
 

@@ -1,8 +1,12 @@
-// Debug HTTP server: exposes every backend command over a local port so the
-// app can be driven and inspected from a CLI (curl) for debugging.
+// Local HTTP command gateway (Phase 9.1): exposes backend commands over a
+// local port for CLI / MCP / external tooling. Defaults to disabled and is
+// protected by a Bearer token so no other local process can drive the app.
 use axum::{
+    body::Body,
     extract::State,
-    http::StatusCode,
+    http::{header, Request, StatusCode},
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
@@ -10,8 +14,6 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::AppHandle;
-
-pub const DEBUG_PORT: u16 = 17890;
 
 /// Newtype wrapper around `AppHandle`.
 ///
@@ -33,44 +35,77 @@ impl SendAppHandle {
 }
 
 #[derive(Clone)]
-pub struct DebugState {
+pub struct LocalApiState {
     pub app: SendAppHandle,
+    pub token: Arc<String>,
 }
 
-pub async fn start(app: AppHandle) {
-    let state = Arc::new(DebugState {
+pub async fn start(app: AppHandle, port: u16, token: String) {
+    let state = Arc::new(LocalApiState {
         app: SendAppHandle(app),
+        token: Arc::new(token),
     });
     let router = router(state);
 
-    let addr = format!("127.0.0.1:{}", DEBUG_PORT);
+    let addr = format!("127.0.0.1:{}", port);
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[debug-server] Failed to bind {}: {}", addr, e);
+            eprintln!("[local-api] Failed to bind {}: {}", addr, e);
             return;
         }
     };
-    eprintln!("[debug-server] Listening on http://{}", addr);
+    eprintln!("[local-api] Listening on http://{}", addr);
 
     if let Err(e) = axum::serve(listener, router).await {
-        eprintln!("[debug-server] Server error: {}", e);
+        eprintln!("[local-api] Server error: {}", e);
     }
 }
 
-pub fn router(state: Arc<DebugState>) -> Router {
+pub fn router(state: Arc<LocalApiState>) -> Router {
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
     Router::new()
         .route("/", get(index))
         .route("/health", get(health))
         .route("/api/command", post(execute_command))
+        .layer(middleware::from_fn_with_state(state.clone(), auth))
+        .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024))
+        .layer(cors)
         .with_state(state)
+}
+
+/// Bearer-token auth: /health stays open for probing, everything else must
+/// present a valid `Authorization: Bearer <token>` header.
+async fn auth(
+    State(state): State<Arc<LocalApiState>>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let is_health = req.uri().path() == "/health";
+    if is_health {
+        return Ok(next.run(req).await);
+    }
+    let authorized = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|t| t == state.token.as_str())
+        .unwrap_or(false);
+    if authorized {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
 }
 
 async fn index() -> Json<Value> {
     Json(json!({
-        "name": "trae-skill-manager debug server",
-        "port": DEBUG_PORT,
-        "usage": "POST /api/command with {\"action\":\"<name>\",\"args\":{...}}",
+        "name": "trae-skill-manager local api",
+        "usage": "POST /api/command with {\"action\":\"<name>\",\"args\":{...}} and Authorization: Bearer <token>",
         "commands": [
             {"action": "fetch_skills", "args": {"view": "trending|browse|popular", "page": 0, "per_page": 100}},
             {"action": "search_skills", "args": {"query": "supabase", "limit": 30}},
@@ -144,7 +179,7 @@ fn to_value<T: serde::Serialize>(v: T) -> Value {
 }
 
 async fn execute_command(
-    State(state): State<Arc<DebugState>>,
+    State(state): State<Arc<LocalApiState>>,
     Json(payload): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
     let start = Instant::now();

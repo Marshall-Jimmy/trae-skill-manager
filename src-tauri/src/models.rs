@@ -239,10 +239,42 @@ pub struct AppConfig {
     /// 当前目标工具（Phase 3 Tool Adapter），默认 "trae"
     #[serde(default = "default_active_tool")]
     pub active_tool_id: String,
+    /// 本地 HTTP 网关配置（Phase 9.1），默认关闭
+    #[serde(default)]
+    pub local_api: LocalApiConfig,
 }
 
 fn default_active_tool() -> String {
     "trae".to_string()
+}
+
+// ─── Local API Config (Phase 9.1 本地 HTTP 网关) ───────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalApiConfig {
+    /// 是否启用本地 HTTP 网关（默认关闭，仅显式开启时启动）
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_local_api_port")]
+    pub port: u16,
+    /// Bearer token，首次启用时自动生成并持久化
+    #[serde(default)]
+    pub token: String,
+}
+
+fn default_local_api_port() -> u16 {
+    18765
+}
+
+impl Default for LocalApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: default_local_api_port(),
+            token: String::new(),
+        }
+    }
 }
 
 // ─── Skill Diagnosis (Phase 7.1 健康度诊断) ───────────────────────────────

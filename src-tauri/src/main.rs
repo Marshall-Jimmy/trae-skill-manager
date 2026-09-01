@@ -2,7 +2,7 @@
 
 mod commands;
 #[cfg(debug_assertions)]
-mod debug_server;
+mod local_api;
 mod models;
 mod tools;
 mod utils;
@@ -381,6 +381,13 @@ fn config_path() -> std::path::PathBuf {
     data_dir.join("trae-skill-manager").join("config.json")
 }
 
+/// Generate a random 64-hex-char bearer token for the local HTTP gateway.
+fn generate_token() -> String {
+    let mut buf = [0u8; 32];
+    let _ = getrandom::getrandom(&mut buf);
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 #[tauri::command]
 fn get_app_data_dir() -> String {
     dirs::data_dir()
@@ -420,6 +427,11 @@ fn get_config() -> AppConfig {
             token: String::new(),
         },
         active_tool_id: "trae".to_string(),
+        local_api: LocalApiConfig {
+            enabled: false,
+            port: 18765,
+            token: String::new(),
+        },
     };
 
     // Try to load from config file
@@ -603,14 +615,24 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            // Debug HTTP server is dev-only: exposing a local port in a release
-            // build would let any local process drive the app.
+            // Local HTTP gateway is opt-in (Phase 9.1): only starts when
+            // explicitly enabled in settings, and is protected by a Bearer
+            // token so no other local process can drive the app.
             #[cfg(debug_assertions)]
             {
-                let handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    debug_server::start(handle).await;
-                });
+                let mut config = get_config();
+                if config.local_api.enabled {
+                    if config.local_api.token.is_empty() {
+                        config.local_api.token = generate_token();
+                        let _ = save_config(config.clone());
+                    }
+                    let handle = app.handle().clone();
+                    let port = config.local_api.port;
+                    let token = config.local_api.token.clone();
+                    tauri::async_runtime::spawn(async move {
+                        local_api::start(handle, port, token).await;
+                    });
+                }
             }
 
             // ─── Window icon: high-res source so the taskbar renders crisply ──

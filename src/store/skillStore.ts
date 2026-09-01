@@ -284,6 +284,11 @@ const DEFAULT_CONFIG: AppConfig = {
   github: {
     token: '',
   },
+  localApi: {
+    enabled: false,
+    port: 18765,
+    token: '',
+  },
 };
 
 // ─── Search history helpers ───────────────────────────────────────────────
