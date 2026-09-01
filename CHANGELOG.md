@@ -2,6 +2,27 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-09-01
+
+### 新增
+
+#### CLI 与 MCP（Phase 9）
+- `skillctl` 命令行工具：search / info / trending / recommend / list / install / remove / update / rollback / enable / disable / tools / doctor / mcp / daemon / pack / config / bootstrap
+- 统一输出信封 `{ok, data, error, warnings}` 与退出码 0/1/2，`--json` 结构化输出供 AI Agent 解析
+- MCP Server（stdio）：7 个工具（search_skills / get_skill_detail / recommend_skills_for_task / list_installed_skills / install_skill / remove_skill / detect_tools）+ 2 个资源 + 2 个斜杠命令
+- 任务推荐算法：原文关键词权重为别名 2 倍，每条推荐带 reason 与 confidence，纯本地无需 LLM
+- skill-discovery 自举技能：一键安装到所有工具，形成「管理器 → 给 AI 装技能 → AI 用管理器」闭环
+- 安全边界：路径沙箱（拒绝 `../` 穿越）、源白名单（`skillctl config whitelist`）、CLI/MCP 写操作审计（origin 标记 cli / mcp）
+- 本地 HTTP 命令网关（local_api）：默认关闭 + Bearer token 认证，仅监听 127.0.0.1
+
+#### 架构
+- 抽取 `skills-core` crate：纯逻辑层（无 Tauri 依赖），GUI / CLI / MCP 三端共用
+- `skills-cli` crate：skillctl 二进制 + MCP Server
+
+### 修复
+- `skillctl bootstrap --dry-run` 不再实际写入文件
+- crates 构建产物 `crates/*/target` 加入 .gitignore
+
 ## [1.0.0] - 2026-09-01
 
 首个正式版本，包含完整技能管理、MCP 生态与桌面体验。

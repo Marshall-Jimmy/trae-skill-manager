@@ -37,6 +37,11 @@ TRAE Skill Manager 是一个基于 **Tauri + React** 的桌面应用，用于**�
 - **技能详情面板** — 概览 / 文档 / 文件 / 相关四个标签页，支持 README 与 SKILL.md 在线预览
 - **安装历史与项目切换** — 记录每次安装操作，支持多项目路径与自定义安装位置
 - **技能描述翻译** — 一键将技能描述翻译为中文，带本地缓存；未配置 AI 时自动降级为内置词库「术语对照」（本地翻译，无需联网）
+- **CLI（skillctl）** — 终端搜索 / 推荐 / 安装 / 管理技能，`--json` 结构化输出，供 AI Agent 直接调用
+- **MCP Server** — 7 个工具 + 资源 + 斜杠命令，让 Claude Code / Cursor / Codex / Trae 原生调用技能管理器
+- **任务推荐** — `skillctl recommend "<任务描述>"` 按任务推荐技能并给出理由，无需 LLM，纯本地加权算法
+- **skill-discovery 自举** — 一键把「教 AI 用 skillctl 找技能」的技能装到所有工具，形成自举闭环
+- **安全边界** — 路径沙箱（拒绝 `../` 穿越）、源白名单、CLI/MCP 写操作审计（区分来源）
 - **主题定制** — 亮色 / 暗色 / 跟随系统，支持自定义强调色
 - **自绘标题栏** — 无边框窗口，内置边栏折叠、帮助菜单（更新日志 / 开发者工具 / 报告问题等 9 项）与窗口控制按钮
 - **自定义右键菜单** — 替换系统菜单，支持刷新 / 复制 / 粘贴 / 全选 / 设置 / 退出，自动钳制在视口内
@@ -66,6 +71,8 @@ TRAE Skill Manager 是一个基于 **Tauri + React** 的桌面应用，用于**�
 | 动画 | motion |
 | 样式 | Tailwind CSS |
 | 桌面后端 | Tauri 2（Rust），命令拆分至 `commands/*` |
+| 核心逻辑 | `skills-core` crate（纯 Rust，GUI / CLI / MCP 共用） |
+| 命令行 / MCP | `skills-cli` crate（skillctl，clap 4 + stdio JSON-RPC） |
 | 构建 | pnpm workspace · sharp 生成多尺寸图标 |
 
 ## 快速开始
@@ -107,6 +114,61 @@ pnpm run tauri build
 ### 自定义安装
 
 侧边栏底部「自定义安装」支持从任意 Git 仓库或本地路径安装技能，`skill_path_hint` 可递归定位技能目录。
+
+### CLI：skillctl
+
+`skillctl` 是随应用提供的命令行工具，让 AI Agent 与终端用户都能调用技能管理器。构建后位于 `crates/skills-cli/target/release/skillctl`（Windows 为 `skillctl.exe`）。
+
+```bash
+# 发现
+skillctl search pdf                    # 搜索技能（本地缓存优先，后台刷新）
+skillctl info anthropics/skills/pdf    # 查看详情，含 SKILL.md 全文
+skillctl trending --limit 10           # 趋势榜
+skillctl recommend "从 PDF 提取表格"    # 描述任务，推荐技能（带理由）
+
+# 管理
+skillctl list                          # 已安装（默认当前工具）
+skillctl install anthropics/skills/pdf # 安装
+skillctl remove pdf                    # 卸载
+skillctl update                        # 升级全部
+skillctl enable/disable <name>         # 启停
+
+# 环境与安全
+skillctl tools                         # 列出检测到的 AI 工具与状态
+skillctl doctor                        # 健康诊断
+skillctl config whitelist on           # 开启源白名单（仅允许白名单 org）
+skillctl bootstrap                     # 安装 skill-discovery 自举技能到所有工具
+
+# 服务
+skillctl mcp serve                     # 以 MCP Stdio Server 启动（给 AI 用）
+skillctl daemon                        # 后台 HTTP 网关（供 GUI/CLI 共享缓存）
+```
+
+所有命令支持 `--json` 结构化输出（统一信封 `{ok, data, error, warnings}`，退出码 0/1/2），以及 `--tool` / `--project` / `--yes` / `--dry-run` / `--no-network` / `--quiet` 全局参数。
+
+### MCP Server
+
+`skillctl mcp serve` 以 Stdio 传输启动 MCP Server，提供 **7 个工具**（`search_skills` / `get_skill_detail` / `recommend_skills_for_task` / `list_installed_skills` / `install_skill` / `remove_skill` / `detect_tools`）、**2 个资源**（`skills://installed` 等）与 **2 个斜杠命令**（`/find-skill` / `/audit-skills`）。
+
+配置到各 AI 工具的 MCP 配置中即可：
+
+```json
+{
+  "mcpServers": {
+    "skill-hub": {
+      "command": "skillctl",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+> [!NOTE]
+> 安全设计：`install_skill` 与 `remove_skill` 默认要求确认——AI 需先向用户复述「装什么、来自哪个仓库、装到哪」，得到同意后再带 `confirm: true` 调用。所有 CLI/MCP 触发的写操作都会记入安装历史并标注来源（`cli` / `mcp`）。
+
+### skill-discovery 自举
+
+在 **设置** 页点击「一键安装到所有工具」，或运行 `skillctl bootstrap`，即可把 `skill-discovery` 技能装到所有检测到的 AI 工具。之后 AI 在缺少能力时会主动用 `skillctl` 搜索并安装所需技能，形成「管理器 → 给 AI 装技能 → AI 用管理器」的自举闭环。
 
 ## 发布
 
@@ -158,8 +220,12 @@ trae-skill-manager/
 │   │   ├── commands/         # install / scan / remove / toggle / update / translate / mcp_sync / diagnose / preset / search_github / fetch / history ...
 │   │   ├── models.rs         # 数据模型
 │   │   ├── main.rs           # 入口与命令注册
+│   │   ├── local_api.rs      # 本地 HTTP 命令网关（默认关闭，Bearer token 认证）
 │   │   └── utils/path.rs     # 技能目录探测
 │   └── tauri.conf.json       # Tauri 配置（含 updater 签名公钥）
+├── crates/
+│   ├── skills-core/          # 纯逻辑层（无 Tauri 依赖）：fetch / install / scan / tools / recommend / config / bootstrap ...
+│   └── skills-cli/           # skillctl 命令行 + MCP Server（clap + stdio JSON-RPC）
 ├── .github/workflows/        # release.yml 三端自动构建
 ├── assets/                   # 图标与截图
 ├── BUILD.md                  # 构建指南
