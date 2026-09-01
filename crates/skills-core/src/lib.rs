@@ -5,10 +5,12 @@
 
 pub mod browse;
 pub mod bootstrap;
+pub mod cache;
 pub mod config;
 pub mod diagnose;
 pub mod event;
 pub mod export;
+pub mod favorites;
 pub mod fetch;
 pub mod history;
 pub mod install;
@@ -20,6 +22,7 @@ pub mod recommend;
 pub mod remove;
 pub mod scan;
 pub mod search_github;
+pub mod stats;
 pub mod toggle;
 pub mod tools;
 pub mod translate;

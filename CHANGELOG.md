@@ -19,6 +19,16 @@
 - 抽取 `skills-core` crate：纯逻辑层（无 Tauri 依赖），GUI / CLI / MCP 三端共用
 - `skills-cli` crate：skillctl 二进制 + MCP Server
 
+#### 产品化打磨（Phase 10）
+- 本地使用统计与趋势图：基于历史记录聚合，操作历史页展示摘要卡片 + 近 14 天趋势 + Top 技能
+- 收藏列表导出 / 导入：JSON 文件读写，兼容纯数组与封装格式，跨机器迁移收藏
+- 会话恢复增强：重启后还原搜索关键词、分类、标签、来源筛选、排序与视图状态
+- 离线本地安装：支持从本地目录直接复制安装技能，无需网络
+- 安装冲突检测：同名技能覆盖前明确提示，防止无意识覆盖
+- 缓存清理：统一统计与清理 GitHub / 技能 / 翻译缓存，设置页一键清理并显示释放空间
+- 崩溃日志采集：Rust panic hook + 前端 ErrorBoundary 落盘，生产问题可追踪
+- 发布配置完善：版本号 1.1.0、shortDescription / category / deb 依赖补齐
+
 ### 修复
 - `skillctl bootstrap --dry-run` 不再实际写入文件
 - crates 构建产物 `crates/*/target` 加入 .gitignore

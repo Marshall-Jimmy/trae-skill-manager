@@ -1,5 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "TRAE Skill Manager",
+  "version": "1.1.0",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",
@@ -9,6 +11,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Search, browse and install Agent Skills",
+    "longDescription": "TRAE Skill Manager - 搜索、浏览与安装 Agent Skills，管理 MCP 生态，支持跨工具同步。",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -26,7 +31,12 @@
     },
     "linux": {
       "deb": {
-        "depends": []
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libappindicator3-1",
+          "librsvg2-2"
+        ]
       },
       "appimage": {
         "bundleMediaFramework": false

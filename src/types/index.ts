@@ -154,6 +154,35 @@ export interface InstallRecord {
   message: string;
 }
 
+// ─── Usage Stats (Phase 10 产品化) ────────────────────────────────────────
+
+export interface SkillUsage {
+  name: string;
+  operations: number;
+  installs: number;
+  removes: number;
+  lastAction: string;
+  lastTime: number;
+}
+
+export interface DailyTrend {
+  day: string;
+  installs: number;
+  removes: number;
+  other: number;
+}
+
+export interface UsageStats {
+  totalOperations: number;
+  totalInstalls: number;
+  totalRemoves: number;
+  totalToggles: number;
+  activeSkills: number;
+  weeklyActivity: number;
+  topSkills: SkillUsage[];
+  dailyTrend: DailyTrend[];
+}
+
 // ─── Batch / Single operation results ─────────────────────────────────────
 
 export interface BatchResult {

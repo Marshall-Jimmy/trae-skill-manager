@@ -1,6 +1,6 @@
 [package]
 name = "trae-skill-manager"
-version = "1.0.0"
+version = "1.1.0"
 description = "TRAE Skill Manager - Search, browse and install Agent Skills"
 authors = ["you"]
 edition = "2021"

@@ -41,6 +41,12 @@ const SPEED_OPTIONS: { value: MotionSpeed; label: string; icon: typeof Zap; desc
   { value: 'instant', label: '瞬时', icon: Zap, desc: '无动画' },
 ];
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
 // ─── Project List Item ─────────────────────────────────────────────────────
 
 function ProjectListItem({
@@ -164,7 +170,7 @@ function ProjectListItem({
 }
 
 export function SettingsPage() {
-  const { config, loadConfig, updateConfig, localSkills, loadLocalSkills, clearTranslations,
+  const { config, loadConfig, updateConfig, localSkills, loadLocalSkills,
     // Project-related
     projects,
     addProject,
@@ -191,9 +197,20 @@ export function SettingsPage() {
   const [githubRateLoading, setGithubRateLoading] = useState(false);
   const [bootstrapStatus, setBootstrapStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [bootstrapMsg, setBootstrapMsg] = useState<string | null>(null);
+  const [cacheStats, setCacheStats] = useState<{ total_bytes: number } | null>(null);
+  const [cacheClearing, setCacheClearing] = useState(false);
   const { config: motionConfig, setSpeed, setEnabled } = useMotionConfig();
   const { setting: langSetting, setSetting: setLangSetting } = useI18nStore();
   useLang();
+
+  const loadCacheStats = useCallback(async () => {
+    try {
+      const stats = await invoke<{ total_bytes: number }>('get_cache_stats');
+      setCacheStats(stats);
+    } catch {
+      setCacheStats(null);
+    }
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -202,7 +219,8 @@ export function SettingsPage() {
       setIsLoading(false);
     };
     init();
-  }, [loadConfig]);
+    loadCacheStats();
+  }, [loadConfig, loadCacheStats]);
 
   useEffect(() => {
     setLocalConfig(config);
@@ -370,12 +388,15 @@ export function SettingsPage() {
   };
 
   const handleClearCache = async () => {
+    setCacheClearing(true);
     try {
-      await clearTranslations();
-      setImportMsg({ type: 'success', text: '翻译缓存已清除' });
+      const stats = await invoke<{ total_bytes: number }>('clear_cache');
+      setCacheStats(stats);
+      setImportMsg({ type: 'success', text: `缓存已清除（释放 ${formatBytes(stats.total_bytes)}）` });
     } catch (e) {
       setImportMsg({ type: 'error', text: `清除失败: ${String(e)}` });
     }
+    setCacheClearing(false);
     setTimeout(() => setImportMsg(null), 3000);
   };
 
@@ -981,13 +1002,19 @@ export function SettingsPage() {
                     <motion.button
                       type="button"
                       onClick={handleClearCache}
+                      disabled={cacheClearing}
                       whileHover={{ scale: 1.03 }}
                       whileTap={{ scale: 0.97 }}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-trae-card/30 text-trae-text-secondary border border-trae-border hover:bg-trae-card/50 transition-all"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-trae-card/30 text-trae-text-secondary border border-trae-border hover:bg-trae-card/50 transition-all disabled:opacity-50"
                     >
-                      <Trash2 className="w-3 h-3" aria-hidden="true" />
-                      清除缓存
+                      {cacheClearing ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" /> : <Trash2 className="w-3 h-3" aria-hidden="true" />}
+                      {cacheClearing ? '清理中...' : '清除缓存'}
                     </motion.button>
+                    {cacheStats !== null && cacheStats.total_bytes > 0 && (
+                      <span className="text-xs text-trae-text-secondary">
+                        缓存占用 {formatBytes(cacheStats.total_bytes)}
+                      </span>
+                    )}
                     </div>
                     {testTranslationError && testTranslationStatus === 'error' && (
                       <p className="text-xs text-trae-danger">{testTranslationError}</p>

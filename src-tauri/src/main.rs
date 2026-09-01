@@ -634,9 +634,94 @@ async fn install_app_update(app: tauri::AppHandle) -> Result<(), String> {
     commands::update::install_app_update(&app).await
 }
 
+// ─── Crash Log (Phase 10 产品化) ─────────────────────────────────────────
+
+/// Logs directory: <data_dir>/trae-skill-manager/logs
+fn log_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_default()
+        .join("trae-skill-manager")
+        .join("logs")
+}
+
+/// Write a crash/error record to the log dir so production issues are
+/// reproducible even when the UI is gone. Returns the written file path.
+#[tauri::command(rename_all = "camelCase")]
+fn write_crash_log(source: String, message: String, detail: Option<String>) -> Result<String, String> {
+    let dir = log_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建日志目录: {}", e))?;
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let path = dir.join(format!("crash-{}-{}.log", source, stamp));
+    let mut content = format!(
+        "time: {}\nsource: {}\nmessage: {}\n",
+        chrono::Local::now().to_rfc3339(),
+        source,
+        message
+    );
+    if let Some(d) = detail {
+        content.push_str(&format!("detail:\n{}\n", d));
+    }
+    std::fs::write(&path, content).map_err(|e| format!("无法写入崩溃日志: {}", e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Registers a Rust panic hook that appends the panic payload to a log file,
+/// so native panics (not just render errors) are captured for diagnosis.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_hook(info);
+        let dir = log_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+        let path = dir.join(format!("crash-rust-{}.log", stamp));
+        let _ = std::fs::write(
+            &path,
+            format!(
+                "time: {}\nthread: {:?}\npanic: {}\n",
+                chrono::Local::now().to_rfc3339(),
+                std::thread::current().name().map(|s| s.to_string()),
+                info
+            ),
+        );
+    }));
+}
+
+// ─── Cache Commands (Phase 10 产品化) ────────────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_cache_stats() -> skills_core::cache::CacheStats {
+    skills_core::cache::get_cache_stats()
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn clear_cache() -> Result<skills_core::cache::CacheStats, String> {
+    skills_core::cache::clear_cache()
+}
+
+// ─── Usage Stats (Phase 10 产品化) ────────────────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+fn get_usage_stats() -> skills_core::stats::UsageStats {
+    skills_core::stats::get_usage_stats()
+}
+
+// ─── Favorites Export/Import (Phase 10 产品化) ────────────────────────────
+
+#[tauri::command(rename_all = "camelCase")]
+fn export_favorites(ids: Vec<String>, export_path: String) -> Result<(), String> {
+    skills_core::favorites::export_favorites(ids, &export_path)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn import_favorites(import_path: String) -> Result<Vec<String>, String> {
+    skills_core::favorites::import_favorites(&import_path)
+}
+
 // ─── Main Entry ──────────────────────────────────────────────────────────
 
 fn main() {
+    install_panic_hook();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -777,6 +862,12 @@ fn main() {
             install_preset,
             check_app_update,
             install_app_update,
+            write_crash_log,
+            get_cache_stats,
+            clear_cache,
+            get_usage_stats,
+            export_favorites,
+            import_favorites,
             mcp_test_connection,
             mcp_start_server,
             mcp_stop_server,

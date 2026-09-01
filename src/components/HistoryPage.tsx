@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Trash2, Clock } from 'lucide-react';
+import { Trash2, Clock, Activity, Download, Trash, ToggleLeft, Boxes, TrendingUp } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { useSkillStore } from '../store/skillStore';
-import type { InstallRecord } from '../types';
+import type { InstallRecord, UsageStats } from '../types';
 
 const typeConfig: Record<
   string,
@@ -98,6 +99,253 @@ function getDotColor(action: string): string {
   }
 }
 
+// ─── Stat Card ────────────────────────────────────────────────────────────
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  icon: typeof Activity;
+  label: string;
+  value: string | number;
+  hint?: string;
+  accent: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-trae-card/30 border border-trae-border rounded-lg px-3.5 py-2.5 shadow-hard-sm">
+      <div className={`w-8 h-8 rounded-md flex items-center justify-center ${accent}`}>
+        <Icon className="w-4 h-4" aria-hidden="true" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-lg font-semibold text-trae-text leading-none">{value}</div>
+        <div className="text-[11px] text-trae-text-secondary mt-0.5 truncate">
+          {label}
+          {hint ? ` · ${hint}` : ''}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Trend Chart (pure SVG, no chart lib) ────────────────────────────────
+
+function TrendChart({ trend }: { trend: UsageStats['dailyTrend'] }) {
+  const W = 640;
+  const H = 120;
+  const PAD_B = 18;
+  const PAD_T = 8;
+  const barW = 22;
+  const gap = (W - barW * trend.length) / Math.max(trend.length - 1, 1);
+
+  const maxVal = useMemo(() => {
+    const m = Math.max(1, ...trend.map((d) => d.installs + d.removes + d.other));
+    // round up to a "nice" ceiling: next power-friendly step
+    return m <= 5 ? 5 : Math.ceil(m / 5) * 5;
+  }, [trend]);
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full h-auto"
+      role="img"
+      aria-label="近 14 天操作趋势"
+    >
+      {/* horizontal gridlines */}
+      {[0.25, 0.5, 0.75, 1].map((f) => (
+        <line
+          key={f}
+          x1={0}
+          x2={W}
+          y1={PAD_T + (H - PAD_T - PAD_B) * (1 - f)}
+          y2={PAD_T + (H - PAD_T - PAD_B) * (1 - f)}
+          stroke="var(--trae-border, #2a2f3a)"
+          strokeWidth={0.5}
+          strokeDasharray="3 3"
+        />
+      ))}
+
+      {trend.map((d, i) => {
+        const x = i * (barW + gap);
+        const scaleH = (v: number) => (v / maxVal) * (H - PAD_T - PAD_B);
+        const hOther = scaleH(d.other);
+        const hRem = scaleH(d.removes);
+        const hIns = scaleH(d.installs);
+        const yBottom = H - PAD_B;
+        const yOther = yBottom - hOther;
+        const yRem = yOther - hRem;
+        const yIns = yRem - hIns;
+
+        return (
+          <g key={d.day}>
+            <rect
+              x={x}
+              y={yIns}
+              width={barW}
+              height={Math.max(hIns, 0)}
+              rx={2}
+              fill="#34d399"
+              opacity={0.85}
+            />
+            <rect
+              x={x}
+              y={yRem}
+              width={barW}
+              height={Math.max(hRem, 0)}
+              rx={2}
+              fill="#f87171"
+              opacity={0.85}
+            />
+            <rect
+              x={x}
+              y={yOther}
+              width={barW}
+              height={Math.max(hOther, 0)}
+              rx={2}
+              fill="#60a5fa"
+              opacity={0.6}
+            />
+            {i % 2 === 0 || i === trend.length - 1 ? (
+              <text
+                x={x + barW / 2}
+                y={H - 5}
+                textAnchor="middle"
+                fontSize={9}
+                fill="var(--trae-text-secondary, #8b93a7)"
+              >
+                {d.day}
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// ─── Stats Section ───────────────────────────────────────────────────────
+
+function StatsSection() {
+  const [stats, setStats] = useState<UsageStats | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    invoke<UsageStats>('get_usage_stats')
+      .then((s) => {
+        if (alive) setStats(s);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!stats || stats.totalOperations === 0) {
+    return null;
+  }
+
+  const maxOps = Math.max(1, ...stats.topSkills.map((s) => s.operations));
+
+  return (
+    <div className="mb-6 space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+        <StatCard
+          icon={Activity}
+          label="总操作"
+          value={stats.totalOperations}
+          hint={`近 7 天 ${stats.weeklyActivity}`}
+          accent="bg-blue-400/10 text-blue-400"
+        />
+        <StatCard
+          icon={Download}
+          label="安装"
+          value={stats.totalInstalls}
+          accent="bg-trae-success/10 text-trae-success"
+        />
+        <StatCard
+          icon={Trash}
+          label="卸载"
+          value={stats.totalRemoves}
+          accent="bg-trae-danger/10 text-trae-danger"
+        />
+        <StatCard
+          icon={ToggleLeft}
+          label="启用/禁用"
+          value={stats.totalToggles}
+          accent="bg-amber-400/10 text-amber-400"
+        />
+        <StatCard
+          icon={Boxes}
+          label="活跃技能"
+          value={stats.activeSkills}
+          accent="bg-purple-400/10 text-purple-400"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+        {/* Trend chart */}
+        <div className="xl:col-span-2 bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-trae-text flex items-center gap-1.5">
+              <TrendingUp className="w-4 h-4 text-trae-text-secondary" aria-hidden="true" />
+              近 14 天操作趋势
+            </h3>
+            <div className="flex items-center gap-3 text-[11px] text-trae-text-secondary">
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-trae-success inline-block" />
+                安装
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-trae-danger inline-block" />
+                卸载
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-sm bg-blue-400 inline-block" />
+                其他
+              </span>
+            </div>
+          </div>
+          <TrendChart trend={stats.dailyTrend} />
+        </div>
+
+        {/* Top skills */}
+        <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
+          <h3 className="text-sm font-medium text-trae-text mb-3">操作最多的技能</h3>
+          <div className="space-y-2.5">
+            {stats.topSkills.slice(0, 6).map((s, i) => (
+              <div key={s.name} className="flex items-center gap-2.5">
+                <span className="w-4 text-[11px] text-trae-text-secondary text-right shrink-0">
+                  {i + 1}
+                </span>
+                <span className="text-xs text-trae-text truncate min-w-0 flex-1">
+                  {s.name}
+                </span>
+                <div className="flex-1 h-1.5 bg-trae-card rounded-full overflow-hidden max-w-[90px]">
+                  <div
+                    className="h-full bg-blue-400/70 rounded-full"
+                    style={{ width: `${Math.max(8, (s.operations / maxOps) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-[11px] text-trae-text-secondary shrink-0">
+                  {s.operations}
+                </span>
+              </div>
+            ))}
+            {stats.topSkills.length === 0 && (
+              <p className="text-xs text-trae-text-secondary">暂无数据</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────
+
 export function HistoryPage() {
   const { history, getHistory, clearHistory } = useSkillStore();
 
@@ -113,7 +361,7 @@ export function HistoryPage() {
   return (
     <div className="h-full flex flex-col p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-semibold text-trae-text mb-1">操作历史</h1>
           <p className="text-sm text-trae-text-secondary">
@@ -133,8 +381,11 @@ export function HistoryPage() {
         )}
       </div>
 
-      {/* Timeline */}
       <div className="flex-1 overflow-y-auto pr-1">
+        {/* Stats (only when records exist) */}
+        <StatsSection />
+
+        {/* Timeline */}
         {history.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-trae-text-secondary">
             <Clock className="w-12 h-12 mb-3 opacity-40" />

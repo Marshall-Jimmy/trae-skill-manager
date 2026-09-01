@@ -240,6 +240,8 @@ interface SkillActions {
   // Favorites actions
   toggleFavorite: (skillId: string) => void;
   isFavorite: (skillId: string) => boolean;
+  /** 整体替换收藏（导入后合并，Phase 10 产品化） */
+  setFavorites: (ids: string[]) => void;
 
   // Update actions
   checkUpdates: (skillPaths?: string[]) => Promise<void>;
@@ -357,7 +359,18 @@ function saveFavorites(favorites: string[]): void {
 
 const SESSION_STATE_KEY = 'trae-skill-manager-session-state';
 
-function loadSessionState(): { sortBy: SortBy; viewMode: ViewMode; discoverTab: DiscoverTab } | null {
+interface SessionState {
+  sortBy: SortBy;
+  viewMode: ViewMode;
+  discoverTab: DiscoverTab;
+  searchMode: 'official' | 'github';
+  activeCategory: SkillCategory;
+  selectedTags: string[];
+  sourceFilters: string[];
+  qualityFilter: 'all' | 'with-stars';
+}
+
+function loadSessionState(): SessionState | null {
   try {
     if (typeof window === 'undefined') return null;
     const raw = localStorage.getItem(SESSION_STATE_KEY);
@@ -367,19 +380,39 @@ function loadSessionState(): { sortBy: SortBy; viewMode: ViewMode; discoverTab: 
       sortBy: ['installs', 'stars', 'name', 'updated'].includes(parsed.sortBy) ? parsed.sortBy : 'installs',
       viewMode: ['grid', 'list'].includes(parsed.viewMode) ? parsed.viewMode : 'grid',
       discoverTab: ['all', 'trending', 'recent', 'favorites'].includes(parsed.discoverTab) ? parsed.discoverTab : 'all',
+      searchMode: parsed.searchMode === 'github' ? 'github' : 'official',
+      activeCategory: ['all', 'dev-tools', 'office', 'data', 'creative', 'social', 'system', 'ai-enhanced', 'more'].includes(parsed.activeCategory)
+        ? parsed.activeCategory
+        : 'all',
+      selectedTags: Array.isArray(parsed.selectedTags) ? parsed.selectedTags.filter((t: unknown) => typeof t === 'string') : [],
+      sourceFilters: Array.isArray(parsed.sourceFilters) ? parsed.sourceFilters.filter((s: unknown) => typeof s === 'string') : [],
+      qualityFilter: parsed.qualityFilter === 'with-stars' ? 'with-stars' : 'all',
     };
   } catch {
     return null;
   }
 }
 
-function saveSessionState(state: { sortBy: SortBy; viewMode: ViewMode; discoverTab: DiscoverTab }): void {
+function saveSessionState(state: SessionState): void {
   try {
     if (typeof window === 'undefined') return;
     localStorage.setItem(SESSION_STATE_KEY, JSON.stringify(state));
   } catch {
     // ignore
   }
+}
+
+function snapshotSessionState(s: SkillState & SkillActions): SessionState {
+  return {
+    sortBy: s.sortBy,
+    viewMode: s.viewMode,
+    discoverTab: s.discoverTab,
+    searchMode: s.searchMode,
+    activeCategory: s.activeCategory,
+    selectedTags: s.selectedTags,
+    sourceFilters: s.sourceFilters,
+    qualityFilter: s.qualityFilter,
+  };
 }
 
 const initialSessionState = loadSessionState();
@@ -781,13 +814,13 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
     minInstalls: 0,
   },
 
-  activeCategory: 'all',
-  selectedTags: [],
-  sourceFilters: [],
-  qualityFilter: 'all',
+  activeCategory: initialSessionState?.activeCategory ?? 'all',
+  selectedTags: initialSessionState?.selectedTags ?? [],
+  sourceFilters: initialSessionState?.sourceFilters ?? [],
+  qualityFilter: initialSessionState?.qualityFilter ?? 'all',
   viewMode: initialSessionState?.viewMode ?? 'grid',
   discoverTab: initialSessionState?.discoverTab ?? 'all',
-  searchMode: 'official',
+  searchMode: initialSessionState?.searchMode ?? 'official',
 
   translations: loadTranslationCacheForLanguage(DEFAULT_CONFIG.translation.targetLanguage),
   translating: false,
@@ -1308,7 +1341,7 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
 
   setSortBy: (sort: SortBy) => {
     set({ sortBy: sort });
-    saveSessionState({ sortBy: sort, viewMode: get().viewMode, discoverTab: get().discoverTab });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   loadMore: async () => {
@@ -1369,6 +1402,7 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
 
   setCategory: (category: SkillCategory) => {
     set({ activeCategory: category });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   getSkillCategory: (skill: RemoteSkill): SkillCategory => {
@@ -1384,17 +1418,16 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
   // ── Tag Actions ────────────────────────────────────────────────────────
 
   toggleTag: (tag: string) => {
-    set((state) => {
-      const exists = state.selectedTags.includes(tag);
-      const next = exists
-        ? state.selectedTags.filter((t) => t !== tag)
-        : [...state.selectedTags, tag];
-      return { selectedTags: next };
-    });
+    const next = get().selectedTags.includes(tag)
+      ? get().selectedTags.filter((t) => t !== tag)
+      : [...get().selectedTags, tag];
+    set({ selectedTags: next });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   clearTags: () => {
     set({ selectedTags: [] });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   getPopularTags: (limit: number = 15): { tag: string; count: number }[] => {
@@ -1421,41 +1454,42 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
   // ── Source Filter (multi-select) ──────────────────────────────────────
 
   toggleSourceFilter: (source: string) => {
-    set((state) => {
-      const exists = state.sourceFilters.includes(source);
-      const next = exists
-        ? state.sourceFilters.filter((s) => s !== source)
-        : [...state.sourceFilters, source];
-      return { sourceFilters: next };
-    });
+    const next = get().sourceFilters.includes(source)
+      ? get().sourceFilters.filter((s) => s !== source)
+      : [...get().sourceFilters, source];
+    set({ sourceFilters: next });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   setSourceFilters: (sources: string[]) => {
     set({ sourceFilters: sources });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   // ── Quality Filter ─────────────────────────────────────────────────────
 
   setQualityFilter: (filter: 'all' | 'with-stars') => {
     set({ qualityFilter: filter });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   // ── View Mode ──────────────────────────────────────────────────────────
 
   setViewMode: (mode: ViewMode) => {
     set({ viewMode: mode });
-    saveSessionState({ sortBy: get().sortBy, viewMode: mode, discoverTab: get().discoverTab });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   // ── Discover Tab ───────────────────────────────────────────────────────
 
   setDiscoverTab: (tab: DiscoverTab) => {
     set({ discoverTab: tab });
-    saveSessionState({ sortBy: get().sortBy, viewMode: get().viewMode, discoverTab: tab });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   setSearchMode: (mode: 'official' | 'github') => {
     set({ searchMode: mode });
+    saveSessionState(snapshotSessionState(get()));
   },
 
   // ── Enhanced Filtered Skills ──────────────────────────────────────────
@@ -1909,6 +1943,13 @@ export const useSkillStore = create<SkillState & SkillActions>((set, get) => ({
 
   isFavorite: (skillId: string): boolean => {
     return get().favorites.includes(skillId);
+  },
+
+  // 导入收藏后整体替换（Phase 10 产品化）
+  setFavorites: (ids: string[]) => {
+    const next = [...new Set(ids.filter((s) => typeof s === 'string'))];
+    set({ favorites: next });
+    saveFavorites(next);
   },
 
   // ── Update Actions ────────────────────────────────────────────────────

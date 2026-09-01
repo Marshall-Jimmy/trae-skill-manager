@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 
 interface Props {
   children: ReactNode;
@@ -18,6 +19,20 @@ export class ErrorBoundary extends Component<Props, State> {
       hasError: true,
       message: err instanceof Error ? err.message : String(err),
     };
+  }
+
+  componentDidCatch(error: unknown, info: unknown) {
+    // Persist the crash to the backend log dir so issues are reproducible
+    // even after the window is closed. Best-effort; never blocks the UI.
+    const detail =
+      info && typeof info === 'object' && 'componentStack' in info
+        ? String((info as { componentStack: unknown }).componentStack)
+        : '';
+    invoke('write_crash_log', {
+      source: 'frontend',
+      message: error instanceof Error ? error.message : String(error),
+      detail: detail || undefined,
+    }).catch(() => {});
   }
 
   handleReset = () => {

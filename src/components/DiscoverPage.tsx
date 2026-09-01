@@ -11,12 +11,14 @@ import type { RemoteSkill, DiscoverTab } from '../types';
 import { CATEGORIES } from '../types';
 import { useMotionConfig } from '../lib/motionConfig';
 import { useVirtualList } from '../lib/useVirtualList';
+import { invoke } from '@tauri-apps/api/core';
 import {
   Loader2,
   AlertCircle,
   Plus,
   ChevronDown,
   Download,
+  Upload,
   X,
   Languages,
   Github,
@@ -42,6 +44,8 @@ interface DiscoverPageProps {
   showCustomInstall: boolean;
   onCustomInstallClose: () => void;
 }
+
+const DISCOVER_QUERY_KEY = 'trae-skill-manager-discover-query';
 
 type SearchMode = 'official' | 'github';
 
@@ -463,6 +467,8 @@ export function DiscoverPage({
     getCurrentProject,
     installSkillStreamedToTarget,
     loadProjectSkills,
+    favorites,
+    setFavorites,
   } = useSkillStore();
 
   const { getTransition } = useMotionConfig();
@@ -475,7 +481,10 @@ export function DiscoverPage({
     message: string;
   } | null>(null);
   const [githubQuery, setGithubQuery] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  // 会话恢复（Phase 10 产品化）：上次搜索关键词持久化，重启后自动恢复
+  const [searchQuery, setSearchQuery] = useState(
+    () => localStorage.getItem(DISCOVER_QUERY_KEY) ?? ''
+  );
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
 
   // Dynamically compute available source options from loaded skills
@@ -499,6 +508,16 @@ export function DiscoverPage({
   useEffect(() => {
     loadRemoteSkills('all-time');
     loadConfig();
+    // 会话恢复：重启后自动重新执行上次的搜索关键词
+    const restored = (localStorage.getItem(DISCOVER_QUERY_KEY) ?? '').trim();
+    if (restored) {
+      if (searchMode === 'github') {
+        searchGithubSkills(restored);
+      } else {
+        searchSkills(restored);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-translate when skills load and translation is enabled
@@ -521,6 +540,11 @@ export function DiscoverPage({
   const handleSearch = useCallback(
     (query: string) => {
       setSearchQuery(query);
+      try {
+        localStorage.setItem(DISCOVER_QUERY_KEY, query);
+      } catch {
+        // ignore
+      }
       if (searchMode === 'github') {
         setGithubQuery(query);
         if (query.trim()) {
@@ -568,6 +592,44 @@ export function DiscoverPage({
     },
     [setDiscoverTab, loadRemoteSkills]
   );
+
+  // 收藏导出/导入（Phase 10 产品化）：收藏存 localStorage，经后端 JSON 文件读写
+  const handleExportFavorites = useCallback(async () => {
+    try {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const path = await save({
+        title: '导出收藏',
+        defaultPath: `trae-skill-favorites_${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!path) return;
+      await invoke('export_favorites', { ids: favorites, exportPath: path });
+      setToast({ type: 'success', message: `已导出 ${favorites.length} 个收藏` });
+    } catch (e) {
+      setToast({ type: 'error', message: `导出失败: ${String(e)}` });
+    }
+  }, [favorites]);
+
+  const handleImportFavorites = useCallback(async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        multiple: false,
+        title: '导入收藏',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!selected || typeof selected !== 'string') return;
+      const ids = await invoke<string[]>('import_favorites', { importPath: selected });
+      if (ids.length === 0) {
+        setToast({ type: 'error', message: '导入的收藏列表为空' });
+        return;
+      }
+      setFavorites([...favorites, ...ids]);
+      setToast({ type: 'success', message: `已合并导入 ${ids.length} 个收藏` });
+    } catch (e) {
+      setToast({ type: 'error', message: `导入失败: ${String(e)}` });
+    }
+  }, [favorites, setFavorites]);
 
   const handleInstall = useCallback(
     async (skill: RemoteSkill) => {
@@ -893,6 +955,32 @@ export function DiscoverPage({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Favorites export/import (only on favorites tab) */}
+            {searchMode === 'official' && discoverTab === 'favorites' && (
+              <>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleExportFavorites}
+                  disabled={favorites.length === 0}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-trae-text-secondary border border-trae-border bg-trae-card/40 hover:text-trae-text hover:bg-trae-card/60 transition-all disabled:opacity-40 disabled:pointer-events-none"
+                  title="导出收藏到 JSON 文件"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  导出
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleImportFavorites}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-trae-text-secondary border border-trae-border bg-trae-card/40 hover:text-trae-text hover:bg-trae-card/60 transition-all"
+                  title="从 JSON 文件导入收藏"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  导入
+                </motion.button>
+              </>
+            )}
             {/* View toggle (only in official mode) */}
             {searchMode === 'official' && (
               <div className="flex items-center bg-trae-card/40 border border-trae-border rounded-lg p-0.5">

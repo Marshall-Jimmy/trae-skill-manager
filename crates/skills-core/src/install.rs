@@ -361,8 +361,94 @@ pub async fn install_skill_streamed(
         data: format!("目标路径: {}", skills_path.display()),
     });
 
+    // 冲突检测（Phase 10 产品化）：目标目录已存在同名技能时明确提示，
+    // 让 GUI/CLI/MCP 各入口的用户都能看到覆盖警告，避免无意识覆盖。
+    let dest_name = if is_root_skill { repo_name.clone() } else { skill_name.to_string() };
+    let conflict_path = skills_path.join(&dest_name);
+    if conflict_path.exists() {
+        sink.emit(InstallOutputEvent::Stderr {
+            data: format!(
+                "⚠ 同名技能已存在: {}（{}），将覆盖安装",
+                dest_name,
+                conflict_path.display()
+            ),
+        });
+    }
+
     let install_method;
     let mut last_error: Option<String>;
+
+    // 0. 本地目录安装（Phase 10 产品化）：source 为本地目录时直接复制，无需网络。
+    //    注意：本地路径不能经过 normalize_source（会把路径当 owner/repo 解析）。
+    if Path::new(source).is_dir() {
+        sink.emit(InstallOutputEvent::Stdout {
+            data: format!("[本地] 检测到本地目录，直接复制安装 {} ...", source),
+        });
+        match try_local_install(
+            &sink,
+            source,
+            skill_name,
+            is_root_skill,
+            &skills_path,
+            skill_path_hint,
+        )
+        .await
+        {
+            Ok((dest, files)) => {
+                install_method = "local".to_string();
+                let verified = verify_skill(&dest);
+                let manifest = SkillManifest {
+                    id: manifest_id.clone(),
+                    name: skill_name.to_string(),
+                    source: normalized_source.clone(),
+                    source_type: "local".to_string(),
+                    install_method: install_method.clone(),
+                    installed_at: start_time,
+                    updated_at: timestamp_ms(),
+                    version: None,
+                    hash: None,
+                    files_installed: files,
+                    schema_version: 1,
+                    remote_hash: None,
+                    last_checked_at: None,
+                    update_available: false,
+                    latest_version: None,
+                };
+                let _ = crate::scan::write_manifest(&dest, &manifest);
+                let _ = tool.post_install(&dest);
+                standardize_if_agents_dir(&sink, &skills_path, &dest);
+                let result = build_install_result(
+                    true,
+                    skill_name,
+                    &dest,
+                    &install_method,
+                    verified,
+                    None,
+                    files,
+                    &skills_path,
+                );
+                let _ = write_history_install(
+                    &normalized_source,
+                    skill_name,
+                    &install_method,
+                    &dest,
+                    true,
+                    &format!("Installed from local dir {}", dest.display()),
+                    start_time,
+                    origin,
+                );
+                report_frontmatter_issues(&sink, &dest);
+                emit_done(&sink, true, &target_label);
+                return Ok(result);
+            }
+            Err(e) => {
+                sink.emit(InstallOutputEvent::Stderr {
+                    data: format!("本地目录安装失败: {}", e),
+                });
+                return Err(e);
+            }
+        }
+    }
 
     // 1. Try git clone (transactional: temp → verify → move)
     sink.emit(InstallOutputEvent::Stdout {
@@ -758,6 +844,81 @@ async fn try_npx_install(
             status.code()
         ))
     }
+}
+
+// ─── Local Directory Install (Phase 10 产品化) ───────────────────────────
+
+/// 从本地目录安装技能（离线安装包支持）：把本地技能目录复制到目标位置。
+/// `source` 为本地目录路径时优先走此分支，无需网络。
+async fn try_local_install(
+    sink: &SharedSink,
+    source: &str,
+    skill_name: &str,
+    is_root_skill: bool,
+    skills_path: &Path,
+    path_hint: Option<&str>,
+) -> Result<(PathBuf, u32), String> {
+    let src_root = PathBuf::from(source);
+    if !src_root.is_dir() {
+        return Err(format!("本地目录不存在: {}", source));
+    }
+
+    let skill_src = find_skill_dir(&src_root, skill_name, is_root_skill, path_hint)?;
+    if !verify_skill(&skill_src) {
+        return Err(format!("{} 下未找到有效的 SKILL.md", skill_src.display()));
+    }
+
+    let dest_name = if is_root_skill {
+        src_root
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| skill_name.to_string())
+    } else {
+        skill_name.to_string()
+    };
+    let dest = skills_path.join(&dest_name);
+
+    // Transactional: copy to temp → verify → rename into place
+    let temp = skills_path.join(format!(".{}.tmp", dest_name));
+    if temp.exists() {
+        std::fs::remove_dir_all(&temp).map_err(|e| format!("无法清理临时目录: {}", e))?;
+    }
+    copy_dir_recursive(&skill_src, &temp)
+        .map_err(|e| format!("复制本地技能失败: {}", e))?;
+
+    if !verify_skill(&temp) {
+        let _ = std::fs::remove_dir_all(&temp);
+        return Err("复制完成但未找到有效的 SKILL.md".to_string());
+    }
+
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest).map_err(|e| format!("无法替换已有目录: {}", e))?;
+    }
+    std::fs::rename(&temp, &dest).map_err(|e| format!("移动技能目录失败: {}", e))?;
+
+    let files = count_files(&dest);
+    sink.emit(InstallOutputEvent::Stdout {
+        data: format!("本地目录安装成功: {} ({} 个文件)", dest.display(), files),
+    });
+    Ok((dest, files))
+}
+
+/// 递归复制目录（不跟随符号链接，避免复制到技能目录之外）。
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else if ty.is_file() {
+            std::fs::copy(&from, &to)?;
+        }
+        // 忽略符号链接，防止路径逃逸
+    }
+    Ok(())
 }
 
 // ─── Git Install (Transactional) ──────────────────────────────────────────
