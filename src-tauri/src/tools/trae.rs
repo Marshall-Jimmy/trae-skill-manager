@@ -11,7 +11,7 @@ pub static TRAE_ADAPTER: ToolAdapter = ToolAdapter {
     id: "trae",
     display_name: "Trae",
     icon: "trae",
-    process_names: &["Trae", "Trae.exe", "trae-cn"],
+    process_names: &["Trae", "Trae.exe", "trae-cn", "TRAE SOLO CN"],
     global_dirs: trae_global_dirs,
     project_dir: ".trae/skills",
     format: SkillFormat::Standard,

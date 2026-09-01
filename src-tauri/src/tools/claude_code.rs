@@ -22,7 +22,7 @@ pub static CLAUDE_CODE_ADAPTER: ToolAdapter = ToolAdapter {
     supports_agents_dir: false,
     config_file: None,
     mcp_config: Some(McpConfigSpec {
-        global_path: Some("claude_desktop_config.json"),
+        global_path: Some(".claude.json"),
         project_path: ".mcp.json",
         format: McpConfigFormat::Json,
     }),

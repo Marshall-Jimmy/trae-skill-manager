@@ -1,7 +1,9 @@
 //! Codex CLI 适配器。
 //!
-//! Codex 特有要求：必须在 ~/.codex/config.toml 设置 [features] skills = true，
-//! 否则技能目录被忽略。该开关是否仍必需需真机验证（附录 B 第 2 条）。
+//! Codex 官方约定：技能目录使用 .agents/skills（REPO/USER 级），见
+//! https://developers.openai.com/codex/skills。旧版 ~/.codex/skills 作为
+//! 兼容候选保留（skill-installer 系统技能仍可能写入该目录）。skills 无需
+//! 任何 [features] 开关，官方已移除该配置项。
 
 use std::path::PathBuf;
 
@@ -15,10 +17,10 @@ pub static CODEX_ADAPTER: ToolAdapter = ToolAdapter {
     icon: "codex",
     process_names: &["codex"],
     global_dirs: codex_global_dirs,
-    project_dir: ".codex/skills",
+    project_dir: ".agents/skills",
     format: SkillFormat::Standard,
     link_strategy: LinkStrategy::Symlink,
-    supports_agents_dir: false,
+    supports_agents_dir: true,
     config_file: Some("config.toml"),
     mcp_config: Some(McpConfigSpec {
         global_path: Some("config.toml"),
@@ -29,7 +31,10 @@ pub static CODEX_ADAPTER: ToolAdapter = ToolAdapter {
 
 fn codex_global_dirs() -> Vec<PathBuf> {
     let home = dirs::home_dir().unwrap_or_default();
-    vec![home.join(".codex").join("skills")]
+    vec![
+        home.join(".agents").join("skills"),
+        home.join(".codex").join("skills"),
+    ]
 }
 
 pub struct CodexTool;
