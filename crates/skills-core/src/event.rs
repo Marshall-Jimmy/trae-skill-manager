@@ -3,7 +3,7 @@
 //! 把「事件发射」从核心逻辑中解耦：GUI 通过 `tauri::AppHandle` 实现，
 //! CLI/MCP 通过自己的输出通道实现，从而让 skills-core 不依赖 Tauri。
 
-use crate::models::InstallOutputEvent;
+pub use crate::models::InstallOutputEvent;
 use std::sync::Arc;
 
 pub trait EventSink: Send + Sync {

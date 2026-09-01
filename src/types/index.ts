@@ -230,6 +230,10 @@ export interface AppConfig {
   activeToolId: string;
   /** 本地 HTTP 网关配置（Phase 9.1），默认关闭 */
   localApi: LocalApiConfig;
+  /** 源白名单开关（Phase 9.7），默认关闭 */
+  whitelistEnabled?: boolean;
+  /** 允许安装的来源 org 列表，仅在 whitelistEnabled 时生效 */
+  whiteListedOrigins?: string[];
 }
 
 // ─── Local API Config (Phase 9.1 本地 HTTP 网关) ───────────────────────────

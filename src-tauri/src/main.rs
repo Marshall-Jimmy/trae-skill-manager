@@ -238,7 +238,27 @@ async fn install_skill_streamed(
 
 #[tauri::command]
 fn remove_skill(path: String) -> Result<bool, String> {
-    commands::remove::remove_skill(&path)
+    commands::remove::remove_skill(&path, None)
+}
+
+// ─── Bootstrap Command (Phase 9.6 skill-discovery 自举) ──────────────────
+
+/// 一键把 skill-discovery 装到所有检测到的工具。
+#[tauri::command]
+fn bootstrap_skill_discovery() -> Result<serde_json::Value, String> {
+    let results = skills_core::bootstrap::install_bootstrap_all()?;
+    for r in &results {
+        if r["installed"].as_bool().unwrap_or(false) {
+            if let (Some(tool), Some(path)) = (r["tool"].as_str(), r["path"].as_str()) {
+                skills_core::bootstrap::write_bootstrap_history(tool, path);
+            }
+        }
+    }
+    Ok(serde_json::json!({
+        "skill": skills_core::bootstrap::SKILL_NAME,
+        "succeeded": results.iter().filter(|r| r["installed"].as_bool().unwrap_or(false)).count(),
+        "results": results,
+    }))
 }
 
 // ─── Toggle Command ───────────────────────────────────────────────────────
@@ -432,6 +452,13 @@ fn get_config() -> AppConfig {
             port: 18765,
             token: String::new(),
         },
+        whitelist_enabled: false,
+        white_listed_origins: vec![
+            "anthropics".to_string(),
+            "vercel-labs".to_string(),
+            "google".to_string(),
+            "microsoft".to_string(),
+        ],
     };
 
     // Try to load from config file
@@ -714,6 +741,7 @@ fn main() {
             remove_skill,
             toggle_skill,
             browse_skill_files,
+            bootstrap_skill_discovery,
             read_file_content,
             add_history_record,
             get_history,

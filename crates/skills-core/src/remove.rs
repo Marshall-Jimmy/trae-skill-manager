@@ -2,7 +2,8 @@ use crate::models::InstallRecord;
 use std::fs;
 use std::path::Path;
 
-pub fn remove_skill(path: &str) -> Result<bool, String> {
+/// `origin` 审计来源：None=GUI，Some("cli") / Some("mcp")（Phase 9.7）。
+pub fn remove_skill(path: &str, origin: Option<&str>) -> Result<bool, String> {
     let skill_path = Path::new(path);
 
     if !skill_path.exists() {
@@ -34,6 +35,7 @@ pub fn remove_skill(path: &str) -> Result<bool, String> {
         timestamp,
         success: true,
         message: "Skill removed successfully".to_string(),
+        origin: origin.map(|s| s.to_string()),
     };
     let _ = crate::history::add_history_record(record);
 

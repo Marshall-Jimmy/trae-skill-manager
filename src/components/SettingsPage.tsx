@@ -189,6 +189,8 @@ export function SettingsPage() {
     authenticated: boolean;
   } | null>(null);
   const [githubRateLoading, setGithubRateLoading] = useState(false);
+  const [bootstrapStatus, setBootstrapStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [bootstrapMsg, setBootstrapMsg] = useState<string | null>(null);
   const { config: motionConfig, setSpeed, setEnabled } = useMotionConfig();
   const { setting: langSetting, setSetting: setLangSetting } = useI18nStore();
   useLang();
@@ -318,6 +320,30 @@ export function SettingsPage() {
       );
     }
     setTimeout(() => setTestTranslationStatus('idle'), 3000);
+  };
+
+  const handleBootstrap = async () => {
+    setBootstrapStatus('loading');
+    setBootstrapMsg(null);
+    try {
+      const result = await invoke<{
+        skill: string;
+        succeeded: number;
+        results: { tool: string; installed: boolean; path?: string; error?: string }[];
+      }>('bootstrap_skill_discovery');
+      const ok = result.results.filter((r) => r.installed).map((r) => r.tool).join('、');
+      const failed = result.results.filter((r) => !r.installed);
+      setBootstrapStatus(failed.length === 0 ? 'success' : 'error');
+      setBootstrapMsg(
+        failed.length === 0
+          ? `已安装 skill-discovery 到：${ok}`
+          : `已安装到 ${ok}；失败：${failed.map((f) => `${f.tool}（${f.error ?? '未知错误'}）`).join('、')}`
+      );
+    } catch (e) {
+      setBootstrapStatus('error');
+      setBootstrapMsg(`安装失败: ${String(e)}`);
+    }
+    setTimeout(() => setBootstrapStatus('idle'), 4000);
   };
 
   const handleAddProject = async () => {
@@ -764,6 +790,47 @@ export function SettingsPage() {
             {importMsg && (
               <p className={`text-xs mt-2 ${importMsg.type === 'success' ? 'text-trae-success' : 'text-trae-danger'}`}>
                 {importMsg.text}
+              </p>
+            )}
+          </div>
+        </motion.div>
+
+        {/* skill-discovery Bootstrap (Phase 9.6) */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring' as const, mass: 1, stiffness: 200, damping: 24, delay: 0.2 }}
+        >
+          <div className="bg-trae-card/30 border border-trae-border rounded-lg p-4 shadow-hard-sm">
+            <label className="flex items-center gap-2 text-sm text-trae-text mb-3">
+              <Sparkles className="w-4 h-4 text-trae-accent" />
+              skill-discovery 自举技能
+            </label>
+            <p className="text-xs text-trae-text-secondary mb-3">
+              安装 skill-discovery 到所有检测到的 AI 工具。安装后，AI 在缺少能力时会主动用 skillctl 搜索并安装技能，形成「管理器 → 给 AI 装技能 → AI 用管理器」的自举闭环。
+            </p>
+            <motion.button
+              type="button"
+              onClick={handleBootstrap}
+              disabled={bootstrapStatus === 'loading'}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                bootstrapStatus === 'success'
+                  ? 'bg-trae-success/20 text-trae-success border border-trae-success/30'
+                  : bootstrapStatus === 'error'
+                  ? 'bg-trae-danger/20 text-trae-danger border border-trae-danger/30'
+                  : 'bg-trae-accent/10 text-trae-accent hover:bg-trae-accent/20 border border-trae-accent/20'
+              }`}
+            >
+              {bootstrapStatus === 'loading' && <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />}
+              {bootstrapStatus === 'success' && <Check className="w-3 h-3" aria-hidden="true" />}
+              {bootstrapStatus === 'idle' && <Sparkles className="w-3 h-3" aria-hidden="true" />}
+              {bootstrapStatus === 'loading' ? '安装中...' : bootstrapStatus === 'success' ? '安装完成' : '一键安装到所有工具'}
+            </motion.button>
+            {bootstrapMsg && (
+              <p className={`text-xs mt-2 ${bootstrapStatus === 'error' ? 'text-trae-danger' : 'text-trae-success'}`}>
+                {bootstrapMsg}
               </p>
             )}
           </div>

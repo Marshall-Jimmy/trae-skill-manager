@@ -1,0 +1,18 @@
+[package]
+name = "skills-cli"
+version = "1.0.0"
+description = "skillctl - TRAE Skill Manager command line interface"
+edition = "2021"
+
+[[bin]]
+name = "skillctl"
+path = "src/main.rs"
+
+[dependencies]
+skills-core = { path = "../skills-core" }
+clap = { version = "4", features = ["derive"] }
+colored = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"

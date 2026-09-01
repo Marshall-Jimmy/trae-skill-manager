@@ -134,6 +134,9 @@ pub struct InstallRecord {
     pub timestamp: i64,        // unix timestamp in milliseconds
     pub success: bool,
     pub message: String,
+    /// 操作来源：None=GUI，Some("cli") / Some("mcp")（Phase 9.7 审计）
+    #[serde(default)]
+    pub origin: Option<String>,
 }
 
 // ─── File Entry (file browser) ────────────────────────────────────────────
@@ -256,6 +259,12 @@ pub struct AppConfig {
     /// 本地 HTTP 网关配置（Phase 9.1），默认关闭
     #[serde(default)]
     pub local_api: LocalApiConfig,
+    /// 源白名单开关（Phase 9.7），默认关闭；开启后只允许安装白名单内的 org
+    #[serde(default)]
+    pub whitelist_enabled: bool,
+    /// 允许安装的来源 org 列表（如 anthropics、vercel-labs），仅在 whitelist_enabled 时生效
+    #[serde(default)]
+    pub white_listed_origins: Vec<String>,
 }
 
 fn default_active_tool() -> String {
@@ -587,4 +596,36 @@ pub struct UpdateResult {
     #[serde(default)]
     pub error: Option<String>,
     pub local_skills: Vec<LocalSkill>,
+}
+
+// ─── Skill Recommendation (Phase 9.5 推荐算法) ─────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillRecommendation {
+    pub id: String,
+    pub name: String,
+    pub source: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub stars: Option<u64>,
+    #[serde(default)]
+    pub installs: u64,
+    /// 0.0 ~ 1.0 归一化置信度
+    pub confidence: f64,
+    /// 人类可读的推荐理由
+    pub reason: String,
+    pub installed: bool,
+    #[serde(default)]
+    pub installed_in: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecommendResult {
+    pub query: String,
+    pub recommendations: Vec<SkillRecommendation>,
+    #[serde(default)]
+    pub suggested_action: Option<String>,
 }

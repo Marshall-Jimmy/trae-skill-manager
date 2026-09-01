@@ -54,6 +54,7 @@ pub fn toggle_skill(skill_path: &str) -> Result<serde_json::Value, String> {
         timestamp,
         success: true,
         message: format!("Skill {}d successfully", action),
+        origin: None,
     };
     let _ = crate::history::add_history_record(record);
 

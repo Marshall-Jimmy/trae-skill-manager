@@ -20,6 +20,7 @@ pub async fn install_skill_streamed(
         target_path,
         skill_path_hint,
         tool_id,
+        None,
     )
     .await
 }

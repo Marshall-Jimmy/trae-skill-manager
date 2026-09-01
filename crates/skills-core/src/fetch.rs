@@ -1559,7 +1559,7 @@ async fn fetch_skills_via_skills_sh() -> Result<Vec<RemoteSkill>, String> {
 
 /// Expand a query into alias terms so related formats surface together
 /// (e.g. searching "pdf" also matches docx/pptx/xlsx skills).
-fn expand_query_aliases(query: &str) -> Vec<String> {
+pub fn expand_query_aliases(query: &str) -> Vec<String> {
     let q = query.trim().to_lowercase();
     let mut terms = vec![q.clone()];
     let family: &[&str] = match q.as_str() {
@@ -1622,7 +1622,7 @@ fn expand_query_aliases(query: &str) -> Vec<String> {
 }
 
 /// Relevance score: name match dominates, then source, then repo description.
-fn relevance_score(skill: &RemoteSkill, terms: &[String]) -> i64 {
+pub fn relevance_score(skill: &RemoteSkill, terms: &[String]) -> i64 {
     let name = skill.name.to_lowercase();
     let source = skill.source.to_lowercase();
     let desc = skill

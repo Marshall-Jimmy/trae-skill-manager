@@ -12,6 +12,9 @@ build
 src-tauri/target
 src-tauri/gen/schemas
 
+# Rust crates build output
+crates/*/target
+
 # Logs
 logs
 *.log

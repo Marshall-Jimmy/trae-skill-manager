@@ -355,7 +355,23 @@ async fn execute_command(
         }
         "remove_skill" => {
             let path = arg_str(&args, "path");
-            crate::commands::remove::remove_skill(&path).map(Value::Bool)
+            crate::commands::remove::remove_skill(&path, None).map(Value::Bool)
+        }
+        "bootstrap_skill_discovery" => {
+            skills_core::bootstrap::install_bootstrap_all().map(|results| {
+                for r in &results {
+                    if r["installed"].as_bool().unwrap_or(false) {
+                        if let (Some(tool), Some(path)) = (r["tool"].as_str(), r["path"].as_str()) {
+                            skills_core::bootstrap::write_bootstrap_history(tool, path);
+                        }
+                    }
+                }
+                to_value(json!({
+                    "skill": skills_core::bootstrap::SKILL_NAME,
+                    "succeeded": results.iter().filter(|r| r["installed"].as_bool().unwrap_or(false)).count(),
+                    "results": results,
+                }))
+            })
         }
         "toggle_skill" => {
             let path = arg_str(&args, "skill_path");

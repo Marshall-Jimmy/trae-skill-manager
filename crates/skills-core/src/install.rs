@@ -298,6 +298,7 @@ impl Drop for TempDir {
 /// Uses transactional install: download to temp dir → verify → move to target.
 /// Automatically writes history record after install.
 /// `tool_id` 指定目标工具（Phase 3），不传则用默认 Trae。
+/// `origin` 审计来源：None=GUI，Some("cli") / Some("mcp")（Phase 9.7）。
 pub async fn install_skill_streamed(
     sink: SharedSink,
     source: &str,
@@ -305,7 +306,14 @@ pub async fn install_skill_streamed(
     target_path: Option<&str>,
     skill_path_hint: Option<&str>,
     tool_id: Option<&str>,
+    origin: Option<&str>,
 ) -> Result<InstallResult, String> {
+    // 路径沙箱：拒绝技能名中的路径穿越与分隔符，防止写入技能目录之外
+    if skill_name.contains("..") || skill_name.contains('/') || skill_name.contains('\\') {
+        return Err(format!("技能名包含非法路径字符: {}", skill_name));
+    }
+    // 源白名单（Phase 9.7）：开启后仅允许白名单内 org，未开启直接放行
+    crate::config::check_source_whitelist(source)?;
     let tool = crate::tools::get_tool(tool_id.unwrap_or("trae"))
         .unwrap_or_else(crate::tools::default_tool);
     let start_time = timestamp_ms();
@@ -424,6 +432,7 @@ pub async fn install_skill_streamed(
                 true,
                 &format!("Installed via git to {}", dest.display()),
                 start_time,
+                origin,
             );
 
             report_frontmatter_issues(&sink, &dest);
@@ -504,6 +513,7 @@ pub async fn install_skill_streamed(
                 true,
                 &format!("Installed via degit to {}", dest.display()),
                 start_time,
+                origin,
             );
 
             report_frontmatter_issues(&sink, &dest);
@@ -583,6 +593,7 @@ pub async fn install_skill_streamed(
                 true,
                 "Installed via npx skills add",
                 start_time,
+                origin,
             );
 
             report_frontmatter_issues(&sink, Path::new(&dest_path));
@@ -601,6 +612,7 @@ pub async fn install_skill_streamed(
                 false,
                 &combined,
                 start_time,
+                origin,
             );
 
             emit_done(&sink, false, &target_label);
@@ -653,6 +665,7 @@ fn write_history_install(
     success: bool,
     message: &str,
     _start_time: i64,
+    origin: Option<&str>,
 ) -> Result<(), String> {
     let record = InstallRecord {
         id: generate_id("install"),
@@ -662,6 +675,7 @@ fn write_history_install(
         timestamp: timestamp_ms(),
         success,
         message: message.to_string(),
+        origin: origin.map(|s| s.to_string()),
     };
     crate::history::add_history_record(record)
 }
