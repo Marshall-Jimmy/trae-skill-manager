@@ -11,8 +11,9 @@
 ![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white&style=flat-square)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8D8?logo=tauri&logoColor=white&style=flat-square)
 ![pnpm](https://img.shields.io/badge/pnpm-11-F69220?logo=pnpm&logoColor=white&style=flat-square)
+![License](https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square)
 
-[功能特性](#功能特性) • [技术栈](#技术栈) • [快速开始](#快速开始) • [使用指南](#使用指南) • [目录结构](#目录结构) • [界面预览](#界面预览)
+[功能特性](#功能特性) • [安装](#安装) • [技术栈](#技术栈) • [快速开始](#快速开始) • [使用指南](#使用指南) • [目录结构](#目录结构) • [界面预览](#界面预览) • [更新日志](CHANGELOG.md)
 
 </div>
 
@@ -27,12 +28,34 @@ TRAE Skill Manager 是一个基于 **Tauri + React** 的桌面应用，用于**�
 - **实时终端体验** — Rust 侧 `emit` 安装事件，前端 `TerminalViewer` 逐行展示 stdio 输出
 - **已装技能管理** — 扫描、移除、启用 / 停用、升级与回滚
 - **MCP Server 市场** — 内置分类（dev-tools / database / browser / search 等），配置对话框 + 详情面板
+- **MCP 配置转译** — 一次配置，多工具同步（Claude Code / Codex / Cursor 等），自动备份与冲突检测
+- **技能健康度诊断** — Token 成本分析、冲突检测、僵尸技能识别、描述质量评分
+- **技能关系图** — 力导向图展示技能间关联，支持缩放、拖拽与节点详情
+- **技能栈 Preset** — 内置配方 + 导入导出 `.skillpack.json` + 批量安装
+- **自动更新** — 应用内检查新版本、一键升级、更新日志展示（Tauri updater + 签名校验）
+- **多语言** — 简体中文 / English 界面，支持跟随系统
 - **技能详情面板** — 概览 / 文档 / 文件 / 相关四个标签页，支持 README 与 SKILL.md 在线预览
 - **安装历史与项目切换** — 记录每次安装操作，支持多项目路径与自定义安装位置
-- **技能描述翻译** — 一键将技能描述翻译为中文，带本地缓存
+- **技能描述翻译** — 一键将技能描述翻译为中文，带本地缓存；未配置 AI 时自动降级为内置词库「术语对照」（本地翻译，无需联网）
+- **主题定制** — 亮色 / 暗色 / 跟随系统，支持自定义强调色
 - **自绘标题栏** — 无边框窗口，内置边栏折叠、帮助菜单（更新日志 / 开发者工具 / 报告问题等 9 项）与窗口控制按钮
 - **自定义右键菜单** — 替换系统菜单，支持刷新 / 复制 / 粘贴 / 全选 / 设置 / 退出，自动钳制在视口内
 - **可折叠边栏** — 一键收缩为图标模式，释放更多内容空间
+
+## 安装
+
+> 从 [GitHub Releases](https://github.com/Marshall-Jimmy/trae-skill-manager/releases) 下载对应平台的安装包。
+
+| 平台 | 安装包 | 说明 |
+|------|--------|------|
+| Windows | `trae-skill-manager_<版本>_x64-setup.exe`（NSIS）或 `.msi` | 双击安装，默认安装到当前用户目录 |
+| macOS | `.dmg`（Apple Silicon / Intel 分别构建） | 首次打开需在「系统设置 → 隐私与安全性」中允许来自 App Store 和被认可的开发者 |
+| Linux | `.deb` 或 `.AppImage` | `.deb` 用 `sudo dpkg -i` 安装；`.AppImage` 加执行权限后直接运行 |
+
+**自动更新**：应用内置更新器，发布新版本后打开「帮助 → 检查更新...」即可一键升级。
+
+> [!NOTE]
+> 自动更新使用 Tauri updater 签名校验。发布流程见下方「发布」小节。
 
 ## 技术栈
 
@@ -85,23 +108,59 @@ pnpm run tauri build
 
 侧边栏底部「自定义安装」支持从任意 Git 仓库或本地路径安装技能，`skill_path_hint` 可递归定位技能目录。
 
+## 发布
+
+三端安装包由 [GitHub Actions](.github/workflows/release.yml) 自动构建。推送 `v*` 标签即可触发：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+工作流会并行构建 **Windows（NSIS + MSI）/ macOS（Apple Silicon + Intel，签名公证）/ Linux（deb + AppImage）**，并将产物上传到 GitHub Release。
+
+### 配置仓库 Secrets
+
+发布前需在仓库 **Settings → Secrets and variables → Actions** 中配置：
+
+| Secret | 用途 | 必填 |
+|--------|------|------|
+| `TAURI_SIGNING_PRIVATE_KEY` | 自动更新签名私钥（base64） | 是 |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥密码 | 是 |
+| `APPLE_CERTIFICATE` | macOS 开发者证书（base64 的 .p12） | macOS 签名需要 |
+| `APPLE_CERTIFICATE_PASSWORD` | 证书密码 | macOS 签名需要 |
+| `APPLE_SIGNING_IDENTITY` | 签名身份（如 `Developer ID Application: xxx`） | macOS 签名需要 |
+| `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | Apple 公证账号 | macOS 公证需要 |
+
+### 生成签名密钥
+
+```bash
+pnpm tauri signer generate -w ~/.tauri/trae-skill-manager.key -p <密码>
+# 输出中的 Public key 已写入 src-tauri/tauri.conf.json
+# 私钥文件内容（base64）作为 TAURI_SIGNING_PRIVATE_KEY 填入仓库 Secret
+```
+
+> [!WARNING]
+> 私钥必须保密，一旦丢失将无法再发布可自动更新的版本。私钥文件已加入 `.gitignore`。
+
 ## 目录结构
 
 ```
 trae-skill-manager/
 ├── src/                      # 前端
-│   ├── components/           # Discover / Installed / History / Mcp / Settings / DetailPanel / TerminalViewer
-│   ├── store/                # skillStore.ts · mcpStore.ts
-│   ├── lib/                  # mcpMarketplace.ts · useVirtualList.ts · motionConfig.ts
+│   ├── components/           # Discover / Installed / History / Mcp / Settings / Diagnosis / Graph / Preset / DetailPanel ...
+│   ├── store/                # skillStore.ts · mcpStore.ts · i18nStore.ts
+│   ├── lib/                  # mcpMarketplace.ts · i18n.ts · theme.ts · motionConfig.ts
 │   ├── styles/               # globals.css
 │   └── types/                # 共享类型定义
 ├── src-tauri/                # Rust 后端
 │   ├── src/
-│   │   ├── commands/         # install / scan / remove / toggle / update / translate / search_github / fetch / history ...
+│   │   ├── commands/         # install / scan / remove / toggle / update / translate / mcp_sync / diagnose / preset / search_github / fetch / history ...
 │   │   ├── models.rs         # 数据模型
 │   │   ├── main.rs           # 入口与命令注册
 │   │   └── utils/path.rs     # 技能目录探测
-│   └── tauri.conf.json       # Tauri 配置
+│   └── tauri.conf.json       # Tauri 配置（含 updater 签名公钥）
+├── .github/workflows/        # release.yml 三端自动构建
 ├── assets/                   # 图标与截图
 ├── BUILD.md                  # 构建指南
 └── INSTALL_OPTIMIZATION_DESIGN.md  # 安装优化设计
@@ -122,8 +181,13 @@ trae-skill-manager/
 
 ## 文档
 
+- [`CHANGELOG.md`](CHANGELOG.md) — 版本更新日志
 - [`BUILD.md`](BUILD.md) — 构建与打包指南
 - [`INSTALL_OPTIMIZATION_DESIGN.md`](INSTALL_OPTIMIZATION_DESIGN.md) — 安装流程优化设计
+
+## 许可证
+
+本项目基于 [GPL-3.0](LICENSE) 许可证开源。
 
 ---
 
