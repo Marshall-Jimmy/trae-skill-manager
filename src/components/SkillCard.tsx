@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Download, TrendingUp, ExternalLink, Languages, Check, Copy, Star, Heart, Tag, Github, Scale } from 'lucide-react';
 import { useSkillStore, getSkillTags } from '../store/skillStore';
+import { Checkbox } from './Checkbox';
 import type { RemoteSkill } from '../types';
 import { useMotionConfig } from '../lib/motionConfig';
 
@@ -80,15 +81,9 @@ export function SkillCard({
 
   const installCommand = `npx skills add ${skill.source}${skill.name !== skill.source.split('/').pop() ? ` --skill ${skill.name}` : ''}`;
 
-  const handleCheckboxClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSelect(skill.id);
-  };
-
   const handleCardClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     if (
-      target.closest('input[type="checkbox"]') ||
       target.closest('button[data-install]') ||
       target.closest('button[data-copy]') ||
       target.closest('button[data-favorite]') ||
@@ -159,13 +154,11 @@ export function SkillCard({
         <div className="flex items-center gap-3">
           {/* Checkbox */}
           <div className="shrink-0">
-            <input
-              type="checkbox"
+            <Checkbox
+              size="sm"
               checked={selected}
               onChange={() => onSelect(skill.id)}
-              onClick={handleCheckboxClick}
               aria-label={`选择 ${skill.name}`}
-              className="w-3.5 h-3.5 rounded border-trae-border bg-trae-bg text-trae-accent focus:ring-trae-accent/30 focus:ring-offset-0 cursor-pointer accent-[#00ff88]"
             />
           </div>
 
@@ -294,13 +287,10 @@ export function SkillCard({
       <div className="flex items-start gap-3">
         {/* Checkbox */}
         <div className="pt-0.5 shrink-0">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={selected}
             onChange={() => onSelect(skill.id)}
-            onClick={handleCheckboxClick}
             aria-label={`选择 ${skill.name}`}
-            className="w-4 h-4 rounded border-trae-border bg-trae-bg text-trae-accent focus:ring-trae-accent/30 focus:ring-offset-0 cursor-pointer accent-[#00ff88]"
           />
         </div>
 

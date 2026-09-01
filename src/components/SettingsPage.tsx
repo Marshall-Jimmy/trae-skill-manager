@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useSkillStore } from '../store/skillStore';
 import { Folder, Sun, Moon, Monitor, Save, Loader2, Check, Download, Upload, Languages, Key, Globe, Sparkles, Trash2, Zap, Rabbit, Turtle, Gauge, Github, Eye, EyeOff, Edit2, FolderOpen, Plus, RefreshCw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { Checkbox } from './Checkbox';
 import type { AppConfig, TranslationConfig, Project } from '../types';
 import { useMotionConfig, type MotionSpeed, SPEED_MULTIPLIERS } from '../lib/motionConfig';
 
@@ -562,12 +563,13 @@ export function SettingsPage() {
             </p>
 
             {/* Enable toggle */}
-            <label className="flex items-center gap-3 cursor-pointer mb-4">
-              <input
-                type="checkbox"
+            <label
+              className="flex items-center gap-3 cursor-pointer mb-4"
+              onClick={() => setEnabled(!motionConfig.enabled)}
+            >
+              <Checkbox
                 checked={motionConfig.enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
-                className="w-4 h-4 rounded border-trae-border bg-trae-bg text-trae-accent focus:ring-trae-accent/30"
+                onChange={() => setEnabled(!motionConfig.enabled)}
               />
               <span className="text-sm text-trae-text">启用动画效果</span>
             </label>
@@ -701,12 +703,13 @@ export function SettingsPage() {
 
             <div className="space-y-4">
               {/* Enable toggle */}
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
+              <label
+                className="flex items-center gap-3 cursor-pointer"
+                onClick={() => updateTranslation({ enabled: !localConfig.translation.enabled })}
+              >
+                <Checkbox
                   checked={localConfig.translation.enabled}
-                  onChange={(e) => updateTranslation({ enabled: e.target.checked })}
-                  className="w-4 h-4 rounded border-trae-border bg-trae-bg text-trae-accent focus:ring-trae-accent/30"
+                  onChange={() => updateTranslation({ enabled: !localConfig.translation.enabled })}
                 />
                 <span className="text-sm text-trae-text">启用 AI 翻译</span>
               </label>
@@ -714,12 +717,13 @@ export function SettingsPage() {
               {localConfig.translation.enabled && (
                 <>
                   {/* Immersive Translate (free) toggle */}
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
+                  <label
+                    className="flex items-center gap-3 cursor-pointer"
+                    onClick={() => updateTranslation({ useImmersive: !localConfig.translation.useImmersive })}
+                  >
+                    <Checkbox
                       checked={localConfig.translation.useImmersive}
-                      onChange={(e) => updateTranslation({ useImmersive: e.target.checked })}
-                      className="w-4 h-4 rounded border-trae-border bg-trae-bg text-trae-accent focus:ring-trae-accent/30"
+                      onChange={() => updateTranslation({ useImmersive: !localConfig.translation.useImmersive })}
                     />
                     <span className="text-sm text-trae-text">使用沉浸式翻译（免费，无需 API Key）</span>
                   </label>

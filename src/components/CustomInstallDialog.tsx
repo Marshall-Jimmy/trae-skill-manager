@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Search, Loader2, PackageOpen, Download, AlertCircle } from 'lucide-react';
 import { useSkillStore } from '../store/skillStore';
 import { TerminalViewer } from './TerminalViewer';
+import { Checkbox } from './Checkbox';
 import type { RemoteSkill } from '../types';
 
 interface CustomInstallDialogProps {
@@ -272,19 +273,19 @@ export function CustomInstallDialog({ open, onClose }: CustomInstallDialogProps)
                 const key = `${skill.source}/${skill.name}`;
                 const isChecked = selected.has(key);
                 return (
-                  <label
+                  <div
                     key={key}
+                    onClick={() => handleToggleSelect(skill)}
                     className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
                       isChecked
                         ? 'bg-trae-accent/5 border-trae-accent/30'
                         : 'bg-trae-card/30 border-trae-border hover:border-trae-border-hover'
                     }`}
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={isChecked}
                       onChange={() => handleToggleSelect(skill)}
-                      className="mt-0.5 w-4 h-4 rounded border-trae-border bg-trae-bg text-trae-accent focus:ring-trae-accent/30 focus:ring-offset-0"
+                      className="mt-0.5"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-trae-text font-medium">{skill.name}</div>
@@ -294,7 +295,7 @@ export function CustomInstallDialog({ open, onClose }: CustomInstallDialogProps)
                         </p>
                       )}
                     </div>
-                  </label>
+                  </div>
                 );
               })}
             </div>

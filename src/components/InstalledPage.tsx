@@ -4,6 +4,7 @@ import { useSkillStore } from '../store/skillStore';
 import { FileBrowser } from './FileBrowser';
 import { TerminalViewer } from './TerminalViewer';
 import { SkeletonList } from './SkeletonCard';
+import { Checkbox } from './Checkbox';
 import type { LocalSkill, FileEntry } from '../types';
 import {
   FolderOpen,
@@ -518,11 +519,9 @@ export function InstalledPage() {
                 >
                   <div className="flex items-center gap-3">
                     {/* Checkbox */}
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={isSelected}
                       onChange={() => toggleSelectSkill(skill.path)}
-                      className="w-4 h-4 rounded border-trae-border bg-trae-bg text-trae-accent focus:ring-trae-accent/30 focus:ring-offset-0 cursor-pointer accent-[#00ff88] shrink-0"
                     />
 
                     {/* Toggle switch */}
